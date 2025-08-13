@@ -371,7 +371,7 @@ def rate_page():
 
 @app.get("/render")
 def render_page():
-    return render_template("render.html", theme=THEME)
+    return render_template("render.html", theme=THEME, CARDRES=f"{DEFAULT_IMAGE_SIZE[0]}x{DEFAULT_IMAGE_SIZE[1]}")
 
 @app.post("/set_library")
 def set_library():

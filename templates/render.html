@@ -29,36 +29,13 @@ button.btn {margin-right: 5px;}
     <div class="preview">
       <img id="card" class="card" src="">
       <div>
-        <button class="btn btn-accent" onclick="download()">Download PNG (1080×1920)</button>
+        <button class="btn btn-accent" onclick="download()">Download PNG ({{CARDRES}})</button>
       </div>
     </div>
   </div>
 </div>
 <script>
 let currentId = null;
-
-async function pickLib(){
-  const s = await fetch('/pick_library_start',{method:'POST'});
-  const jr = await s.json();
-  if(!jr.ok) return promptPath();
-  const id = jr.job_id;
-  for (let i=0;i<200;i++){
-    await new Promise(res=>setTimeout(res,100));
-    const st = await fetch('/pick_library_status?job_id='+id);
-    const sj = await st.json();
-    if (sj.done){
-      if (sj.path){
-        await fetch('/set_library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:sj.path})});
-        return load();
-      } else { return promptPath(); }
-    }
-  }
-  promptPath();
-}
-function promptPath(){
-  const p = prompt("Enter your music folder full path:");
-  if (p && p.trim()) fetch('/set_library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim()})}).then(load);
-}
 async function load(){
   const r = await fetch('/api/tracks'); const j = await r.json();
   const list = document.getElementById('list'); list.innerHTML='';

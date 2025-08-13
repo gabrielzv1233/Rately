@@ -23,49 +23,4 @@
     <div class="footer">Developed by gabrielzv1233 © 2025</div>
   </div>
 </div>
-<script>
-let picking = false;
-
-async function pickLib(){
-  if (selecting) return;
-  selecting = true;
-  try{
-    const s = await fetch('/pick_library_start',{method:'POST'});
-    const jr = await s.json();
-    if(!jr.ok || !jr.job_id){ selecting = false; return; }
-    const id = jr.job_id;
-
-    for (let i=0;i<150;i++){
-      await new Promise(r=>setTimeout(r,200));
-      const st = await fetch('/pick_library_status?job_id='+encodeURIComponent(id));
-      const sj = await st.json();
-
-      if (!sj.ok){ break; }
-
-      if (sj.done){
-        if (sj.path){
-          await fetch('/set_library',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({path:sj.path})
-          });
-          await loadLib();
-        }
-        break;
-      }
-    }
-  } finally {
-    selecting = false;
-  }
-}
-
-function promptPath(){
-  const p = prompt("Enter your music folder full path:");
-  if (p && p.trim()) fetch('/set_library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim()})});
-}
-(async function boot(){
-  const r = await fetch('/api/tracks'); const j = await r.json();
-  if(!j.tracks || !j.tracks.length) pickLib();
-})();
-</script>
 {% endblock %}
