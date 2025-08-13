@@ -30,6 +30,12 @@
                  border-color:rgba(255,45,85,.75); color:#fff; }
     .input{ background:#141826; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:12px; }
     footer.smallnote{ position:absolute; bottom:12px; right:16px; color:#7f8aa5; font-size:12px; }
+
+    .list,.queue{scrollbar-width:thin;scrollbar-color:#1B1E28 transparent;}
+    .list::-webkit-scrollbar,.queue::-webkit-scrollbar{width:16px;}
+    .list::-webkit-scrollbar-track,.queue::-webkit-scrollbar-track{background:transparent;}
+    .list::-webkit-scrollbar-thumb,.queue::-webkit-scrollbar-thumb{background-color:#1B1E28;border-radius:8px;border:none;}
+    .list::-webkit-scrollbar-button,.queue::-webkit-scrollbar-button{display:none;}
     {% block headstyle %}{% endblock %}
   </style>
 </head>
