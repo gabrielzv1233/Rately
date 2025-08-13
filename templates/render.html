@@ -4,15 +4,24 @@
 .wrap{ height:100%; padding:24px; display:flex; gap:16px }
 .left{ flex:0 0 420px; background:var(--panel); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column }
 .right{ flex:1; background:var(--panel); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; justify-content:center; align-items:center }
-.list-head{ text-align: center; padding:12px 14px; font-weight:800; border-bottom:1px solid var(--border) }
-.list{ overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px }
-.item{ display:flex; gap:10px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--panel2); cursor:pointer }
+.list-head{ padding:12px 14px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:10px }
+.list-head .btnrow{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center }
+.list-head .searchrow{ display:flex }
+.list-head input[type="search"]{ flex:1; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--panel2); color:var(--text); padding:6px 10px; outline:none }
+.list{ direction: rtl; overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px }
+
+.list > * {direction: ltr;}
+.list {direction: rtl;}
+
+.item{ display:flex; gap:10px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--panel2); cursor:pointer; transition:transform .15s, background .2s, border-color .2s }
 .item:hover{ background:#1b1e28 }
+.item.active{ border-color: var(--accent); background: linear-gradient(180deg, rgba(255,45,85,.08), transparent) }
 .icov{ width:44px;height:44px;border-radius:10px;overflow:hidden; background:#222; flex:0 0 auto }
 .itxt{ display:flex; flex-direction:column; gap:2px; min-width:0 }
 .ttl{ font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 .art{ color:var(--sub); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.preview{ padding:16px; display:flex; flex-direction:column; align-items:center; gap:12px }
+.preview{ padding:16px; display:none; flex-direction:column; align-items:center; gap:12px }
+.preview.show{ display:flex }
 img.card{ width:min(380px, 42vw); border-radius:16px; border:1px solid var(--border) }
 .topbar{ position:absolute; top:18px; left:18px; display:flex; gap:10px }
 button.btn {margin-right: 5px;}
@@ -21,7 +30,12 @@ button.btn {margin-right: 5px;}
 <div class="wrap">
   <div class="left">
     <div class="list-head">
-      <button class="btn" onclick="location.href='/'">Home</button><button class="btn" onclick="pickLib()">Pick Library</button><button class="btn" onclick="location.href='/rate'">Rate</button>
+      <div class="btnrow">
+        <button class="btn" onclick="location.href='/'">Home</button><button class="btn" onclick="pickLib()">Pick Library</button><button class="btn" onclick="location.href='/rate'">Rate</button>
+      </div>
+      <div class="searchrow">
+        <input id="q" type="search" placeholder="Search library…">
+      </div>
     </div>
     <div id="list" class="list"></div>
   </div>
@@ -35,31 +49,119 @@ button.btn {margin-right: 5px;}
   </div>
 </div>
 <script>
+let LIB = [];
 let currentId = null;
-async function load(){
-  const r = await fetch('/api/tracks'); const j = await r.json();
-  const list = document.getElementById('list'); list.innerHTML='';
-  (j.tracks||[]).forEach(t=>{
-    const div = document.createElement('div'); div.className='item';
-    div.onclick=()=>{ select(t.id); };
+
+const listEl = document.getElementById('list');
+const qbox   = document.getElementById('q');
+const cardEl = document.getElementById('card');
+const preview = document.querySelector('.preview');
+
+function showPreview(on){ preview.classList.toggle('show', !!on); }
+
+function pretty(v){ return v==null? '' : (Number.isInteger(+v)? String(+v) : String(Number(v).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'))); }
+
+function normalizeSimple(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+function toFlat(s){ return normalizeSimple(s).replace(/\s+/g,""); }
+function parseInlineRating(q){
+  const m = q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
+  if(!m) return null;
+  const op = m[1], a = parseFloat(m[2]), b = m[3]? parseFloat(m[3]) : null;
+  return { op, a, b, raw: m[0] };
+}
+function matchesRating(track, filt){
+  const r = track.rating_exact;
+  if (!filt) return true;
+  const {op,a,b} = filt;
+  if (b!=null){ const lo=Math.min(a,b), hi=Math.max(a,b); return r!=null && r>=lo && r<=hi; }
+  if (op.includes('>')) return r!=null && r>a;
+  if (op.includes('<')) return r!=null && r<a;
+  return r!=null && r>=a;
+}
+function textMatches(t, q){
+  const qNorm = normalizeSimple(q || "");
+  if (!qNorm) return true;
+  const tokens = qNorm.split(/\s+/).filter(Boolean).map(tok => tok.replace(/\s+/g,""));
+  if (!tokens.length) return true;
+  const hay = t._flat || "";
+  for (const tok of tokens){ if (!hay.includes(tok)) return false; }
+  return true;
+}
+function debounce(fn, ms){ let to=null; return (...a)=>{ clearTimeout(to); to=setTimeout(()=>fn(...a), ms); }; }
+
+function indexTracks(){
+  for (const t of LIB){
+    const title  = t.display_title  || t.title  || "";
+    const artist = t.display_artist || t.artist || "";
+    t._flat = toFlat(`${title} ${artist}`);
+  }
+}
+
+function currentFilterFromBox(){
+  const q = qbox.value || '';
+  const inline = parseInlineRating(q);
+  return { q, rating: inline };
+}
+
+function buildList(){
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  const { q, rating } = currentFilterFromBox();
+
+  const items = [];
+  for (let i=0;i<LIB.length;i++){
+    const t = LIB[i];
+    if (!textMatches(t, q)) continue;
+    if (!matchesRating(t, rating)) continue;
+    items.push([i, t]);
+  }
+
+  for (const [idx, t] of items){
+    const isActive = (t.id === currentId);
+    const div = document.createElement('div');
+    div.className = 'item' + (isActive ? ' active' : '');
+    div.onclick = ()=> select(t.id);
+    const title  = t.display_title  || t.title  || '';
+    const artist = t.display_artist || t.artist || '';
     div.innerHTML = `
       <div class="icov"><img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"></div>
-      <div class="itxt"><div class="ttl">${t.title}</div><div class="art">${t.artist}</div></div>
+      <div class="itxt"><div class="ttl">${title}</div><div class="art">${artist}</div></div>
     `;
-    list.appendChild(div);
-  });
+    listEl.appendChild(div);
+  }
 }
+
 async function select(id){
   currentId = id;
+  buildList();
   const r = await fetch(`/api/render/${id}`);
   const blob = await r.blob();
   const u = URL.createObjectURL(blob);
-  document.getElementById('card').src = u;
+  cardEl.src = u;
+  showPreview(true);
 }
+
 function download(){
   if (!currentId) return;
-  const a = document.createElement('a'); a.href=`/api/render/${currentId}`; a.download='card.png'; a.click();
+  const a = document.createElement('a');
+  a.href=`/api/render/${currentId}`;
+  a.download='card.png';
+  a.click();
 }
+
+async function load(){
+  const r = await fetch('/api/tracks'); 
+  const j = await r.json();
+  LIB = j.tracks || [];
+  indexTracks();
+  buildList();
+  showPreview(false);
+}
+
+qbox.addEventListener('input', debounce(buildList, 120));
+window.download = download;
+window.select = select;
+
 load();
 </script>
 {% endblock %}
