@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{ title or "Rately" }}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg: {{ theme.bg }};
+      --panel: {{ theme.panel }};
+      --panel2: {{ theme.panel2 }};
+      --text: {{ theme.text }};
+      --sub: {{ theme.sub }};
+      --border: {{ theme.border }};
+      --accent: {{ theme.accent }};
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{ box-sizing:border-box }
+    html,body{ height:100%; margin:0; background:var(--bg); color:var(--text);
+               font-family:"Inter","SF Pro Display",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; overflow:hidden; }
+    a{ color:var(--accent); text-decoration:none }
+    .btn{ background:var(--panel2); border:1px solid var(--border); color:var(--text); border-radius:12px; padding:12px 18px;
+          cursor:pointer; font-weight:700; transition:transform .08s, background .2s, border-color .2s; }
+    .btn:hover{ transform:translateY(-1px); background:#1b1e28; border-color:#2a3147; }
+    .btn-accent{ background:linear-gradient(180deg, rgba(255,45,85,.85), rgba(255,45,85,.65));
+                 border-color:rgba(255,45,85,.75); color:#fff; }
+    .input{ background:#141826; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:12px; }
+    footer.smallnote{ position:absolute; bottom:12px; right:16px; color:#7f8aa5; font-size:12px; }
+    {% block headstyle %}{% endblock %}
+  </style>
+</head>
+<body>
+  {% block body %}{% endblock %}
+</body>
+</html>

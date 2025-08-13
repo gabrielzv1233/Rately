@@ -1,0 +1,4 @@
+tiktokrater.config.json
+*.spec
+/build
+/dist

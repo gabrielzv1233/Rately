@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% set title = "Rately" %}
+{% block headstyle %}
+.wrap{ height:100%; display:grid; place-items:center; padding:24px; }
+.card{ background:linear-gradient(160deg, rgba(255,45,85,.09), transparent 40%), var(--panel);
+       border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow);
+       padding:32px; width:min(960px,92vw); text-align:center; }
+.h1{ font-size:clamp(28px,5vw,42px); font-weight:800; margin-bottom:12px }
+.sub{ color:var(--sub); margin-bottom:20px }
+.row{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center }
+.footer{ margin-top:10px; color:#8d95ac; font-size:12px }
+{% endblock %}
+{% block body %}
+<div class="wrap">
+  <div class="card">
+    <div class="h1">Rately</div>
+    <div class="sub">A tool to help you rate your music</div>
+    <div class="row">
+      <a class="btn btn-accent" href="/rate">Rate Songs</a>
+      <a class="btn" href="/render">Render Cards</a>
+      <button class="btn" onclick="pickLib()">Pick Library</button>
+    </div>
+    <div class="footer">Developed by gabrielzv1233 © 2025</div>
+  </div>
+</div>
+<script>
+let picking = false;
+
+async function pickLib(){
+  if (selecting) return;
+  selecting = true;
+  try{
+    const s = await fetch('/pick_library_start',{method:'POST'});
+    const jr = await s.json();
+    if(!jr.ok || !jr.job_id){ selecting = false; return; }
+    const id = jr.job_id;
+
+    for (let i=0;i<150;i++){
+      await new Promise(r=>setTimeout(r,200));
+      const st = await fetch('/pick_library_status?job_id='+encodeURIComponent(id));
+      const sj = await st.json();
+
+      if (!sj.ok){ break; }
+
+      if (sj.done){
+        if (sj.path){
+          await fetch('/set_library',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({path:sj.path})
+          });
+          await loadLib();
+        }
+        break;
+      }
+    }
+  } finally {
+    selecting = false;
+  }
+}
+
+function promptPath(){
+  const p = prompt("Enter your music folder full path:");
+  if (p && p.trim()) fetch('/set_library',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p.trim()})});
+}
+(async function boot(){
+  const r = await fetch('/api/tracks'); const j = await r.json();
+  if(!j.tracks || !j.tracks.length) pickLib();
+})();
+</script>
+{% endblock %}
