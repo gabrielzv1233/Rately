@@ -128,11 +128,11 @@ html,body{ overflow:hidden }
       <input id="q" type="search" placeholder="Search library…">
     </div>
     <div id="queue" class="queue"></div>
-    <button class="btn" style="margin:8px" onclick="location.href='/render'">Render</button>
+    <button class="btn" style="margin:8px" onclick="goRender()">Render</button>
   </div>
 </div>
 
-<div id="modal" class="modal" onclick="bgClose(event)">
+<div id="modal" class="modal" onmousedown="bgDown(event)" onclick="bgClick(event)">
   <div class="modal-card" onclick="event.stopPropagation()">
     <button class="modal-x" onclick="cancelModal(true)" title="Close">
       <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#e5e7f4" d="M18.3 5.71 12 12.01l6.3 6.29-1.41 1.41L10.59 13.4l-6.3 6.3-1.41-1.42 6.3-6.29-6.3-6.3L4.3 4.3l6.3 6.3 6.29-6.3z"/></svg>
@@ -172,19 +172,6 @@ const artistEl = document.getElementById('artist');
 const queueEl = document.getElementById('queue');
 const container = document.querySelector('.container');
 const qbox = document.getElementById('q');
-let sideDetached = false;
-let sideNode = side;
-
-function toggleQueue(){
-  if (!sideDetached){
-    if (sideNode.parentNode) sideNode.parentNode.removeChild(sideNode);
-    sideDetached = true;
-  } else {
-    container.appendChild(sideNode);
-    sideDetached = false;
-    buildQueue();
-  }
-}
 
 vol.addEventListener('input', ()=>{ audio.volume = parseFloat(vol.value); });
 
@@ -196,6 +183,13 @@ vol.addEventListener('change', saveVolume);
 vol.addEventListener('mouseup', saveVolume);
 vol.addEventListener('touchend', saveVolume);
 vol.addEventListener('keyup', (e)=>{ if(e.key === 'Enter' || e.key === ' ') saveVolume(); });
+
+let _bgDown = false;
+function bgDown(e){ _bgDown = (e.target && e.target.id === 'modal'); }
+function bgClick(e){ if (e.target && e.target.id === 'modal' && _bgDown) cancelModal(false); }
+document.addEventListener('mouseup', ()=>{ _bgDown = false; });
+document.addEventListener('touchend', ()=>{ _bgDown = false; }, true);
+document.addEventListener('mouseleave', ()=>{ _bgDown = false; }, true);
 
 function toast(msg){
   const el = document.getElementById('toast');
@@ -267,15 +261,10 @@ function cancelModal(escCancel){
   closeModal();
 }
 function closeModal(){
+  _bgDown = false;
   document.getElementById('modal').classList.remove('show');
   setTimeout(()=>{ autoPopup=false; manualPopup=false; modalOpen=false; },100);
 }
-function bgClose(e){ if(e.target.id==='modal') cancelModal(false); }
-document.addEventListener('keydown', (ev)=>{
-  if (ev.key === 'Escape' && modalOpen){
-    ev.preventDefault(); cancelModal(true);
-  }
-});
 
 async function submitRating(){
   const t = LIB[idx]; if(!t) return;
@@ -471,20 +460,22 @@ async function loadLib(){
   const v = getCookie('rately_vol');
   if (v !== null){
     const fv = Math.max(0, Math.min(1, parseFloat(v)));
-    if (isFinite(fv)){
-      vol.value = String(fv);
-      audio.volume = fv;
-    }
+    if (isFinite(fv)){ vol.value = String(fv); audio.volume = fv; }
   }
 
   const r = await fetch('/api/tracks');
   const j = await r.json();
   LIB = j.tracks || [];
-
-  idx = 0;
-  played = new Set();
+  idx = 0; played = new Set();
   indexTracks();
   buildQueue();
+
+  const sel = qs('select');
+  if (sel){
+    const i = LIB.findIndex(t => t.id === sel);
+    if (i >= 0) idx = i;
+  }
+
   if (LIB.length) loadCurrent();
   else { await pickLib(); await loadLib(); }
 
@@ -499,6 +490,12 @@ function setCookie(name, value, days){
 function getCookie(name){
   const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[-[\]/{}()*+?.\\^$|]/g,"\\$&") + '=([^;]*)'));
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+function qs(k){ return new URLSearchParams(location.search).get(k); }
+function goRender(){
+  const t = LIB[idx];
+  location.href = t ? (`/render?select=${encodeURIComponent(t.id)}`) : '/render';
 }
 
 </script>

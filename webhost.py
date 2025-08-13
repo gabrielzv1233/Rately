@@ -336,6 +336,23 @@ def extract_cover_bytes(path: str):
         if os.path.exists(p):
             with open(p,"rb") as f: return f.read(), ("image/png" if p.endswith(".png") else "image/jpeg")
     return fallback_cover()
+
+def safe_filename(name: str) -> str:
+    name = (name or "card").strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1F]+', ' ', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    if not name:
+        name = "card"
+    upper = name.rsplit('.', 1)[0].upper()
+    reserved = {"CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"}
+    if upper in reserved:
+        name = name + "_"
+    if not name.lower().endswith(".png"):
+        name += ".png"
+    name = name.rstrip(" .")
+    if not name:
+        name = "card.png"
+    return name
   
 PICK_JOBS = {}
 
@@ -673,14 +690,26 @@ def draw_card(path, width, height):
     return bio
 
 @app.get("/api/render/<tid>")
-def api_render(tid):
-    try: path = path_for_tid(tid)
-    except: return Response("Not found", 404)
+@app.get("/api/render/<tid>/<path:fname>")
+def api_render(tid, fname=None):
+    try:
+        path = path_for_tid(tid)
+    except:
+        return Response("Not found", 404)
+
     w = int(request.args.get("w", DEFAULT_IMAGE_SIZE[0]))
     h = int(request.args.get("h", DEFAULT_IMAGE_SIZE[1]))
-    w = max(600, min(4096, w)); h = max(600, min(4096, h))
+    w = max(600, min(4096, w))
+    h = max(600, min(4096, h))
+
     out = draw_card(path, w, h)
-    return send_file(out, mimetype="image/png", as_attachment=False, download_name="card.png")
+
+    if fname:
+        fname = safe_filename(fname)
+    else:
+        fname = "card.png"
+
+    return send_file(out, mimetype="image/png", as_attachment=False, download_name=fname)
 
 if __name__ == "__main__":
     app.run(port=3478, debug=False)

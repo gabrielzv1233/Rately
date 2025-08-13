@@ -31,7 +31,7 @@ button.btn {margin-right: 5px;}
   <div class="left">
     <div class="list-head">
       <div class="btnrow">
-        <button class="btn" onclick="location.href='/'">Home</button><button class="btn" onclick="pickLib()">Pick Library</button><button class="btn" onclick="location.href='/rate'">Rate</button>
+        <button class="btn" onclick="location.href='/'">Home</button><button class="btn" onclick="pickLib()">Pick Library</button><button class="btn" onclick="goRate()">Rate</button>
       </div>
       <div class="searchrow">
         <input id="q" type="search" placeholder="Search library…">
@@ -52,78 +52,80 @@ button.btn {margin-right: 5px;}
 let LIB = [];
 let currentId = null;
 
-const listEl = document.getElementById('list');
-const qbox   = document.getElementById('q');
-const cardEl = document.getElementById('card');
+const listEl  = document.getElementById('list');
+const qbox    = document.getElementById('q');
+const cardEl  = document.getElementById('card');
 const preview = document.querySelector('.preview');
 
+function qs(k){ return new URLSearchParams(location.search).get(k); }
 function showPreview(on){ preview.classList.toggle('show', !!on); }
 
 function pretty(v){ return v==null? '' : (Number.isInteger(+v)? String(+v) : String(Number(v).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'))); }
-
 function normalizeSimple(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
 function toFlat(s){ return normalizeSimple(s).replace(/\s+/g,""); }
+
 function parseInlineRating(q){
-  const m = q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
+  const m=q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
   if(!m) return null;
-  const op = m[1], a = parseFloat(m[2]), b = m[3]? parseFloat(m[3]) : null;
-  return { op, a, b, raw: m[0] };
+  const op=m[1],a=parseFloat(m[2]),b=m[3]?parseFloat(m[3]):null;
+  return {op,a,b,raw:m[0]};
 }
-function matchesRating(track, filt){
-  const r = track.rating_exact;
-  if (!filt) return true;
-  const {op,a,b} = filt;
-  if (b!=null){ const lo=Math.min(a,b), hi=Math.max(a,b); return r!=null && r>=lo && r<=hi; }
-  if (op.includes('>')) return r!=null && r>a;
-  if (op.includes('<')) return r!=null && r<a;
-  return r!=null && r>=a;
+
+function matchesRating(track,filt){
+  const r=track.rating_exact;
+  if(!filt) return true;
+  const {op,a,b}=filt;
+  if(b!=null){const lo=Math.min(a,b),hi=Math.max(a,b);return r!=null&&r>=lo&&r<=hi;}
+  if(op.includes('>'))return r!=null&&r>a;
+  if(op.includes('<'))return r!=null&&r<a;
+  return r!=null&&r>=a;
 }
-function textMatches(t, q){
-  const qNorm = normalizeSimple(q || "");
-  if (!qNorm) return true;
-  const tokens = qNorm.split(/\s+/).filter(Boolean).map(tok => tok.replace(/\s+/g,""));
-  if (!tokens.length) return true;
-  const hay = t._flat || "";
-  for (const tok of tokens){ if (!hay.includes(tok)) return false; }
+
+function textMatches(t,q){
+  const qn=normalizeSimple(q||"");
+  if(!qn) return true;
+  const tokens=qn.split(/\s+/).filter(Boolean).map(tok=>tok.replace(/\s+/g,""));
+  if(!tokens.length) return true;
+  const hay=t._flat||"";
+  for(const tok of tokens){ if(!hay.includes(tok)) return false; }
   return true;
 }
-function debounce(fn, ms){ let to=null; return (...a)=>{ clearTimeout(to); to=setTimeout(()=>fn(...a), ms); }; }
+
+function debounce(fn,ms){ let to=null; return (...a)=>{ clearTimeout(to); to=setTimeout(()=>fn(...a),ms); }; }
 
 function indexTracks(){
-  for (const t of LIB){
-    const title  = t.display_title  || t.title  || "";
-    const artist = t.display_artist || t.artist || "";
-    t._flat = toFlat(`${title} ${artist}`);
+  for(const t of LIB){
+    const title=t.display_title||t.title||"";
+    const artist=t.display_artist||t.artist||"";
+    t._flat=toFlat(`${title} ${artist}`);
   }
 }
 
 function currentFilterFromBox(){
-  const q = qbox.value || '';
-  const inline = parseInlineRating(q);
-  return { q, rating: inline };
+  const q=qbox.value||'';
+  const inline=parseInlineRating(q);
+  return {q,rating:inline};
 }
 
 function buildList(){
-  if (!listEl) return;
-  listEl.innerHTML = '';
-  const { q, rating } = currentFilterFromBox();
-
-  const items = [];
-  for (let i=0;i<LIB.length;i++){
-    const t = LIB[i];
-    if (!textMatches(t, q)) continue;
-    if (!matchesRating(t, rating)) continue;
-    items.push([i, t]);
+  if(!listEl) return;
+  listEl.innerHTML='';
+  const {q,rating}=currentFilterFromBox();
+  const items=[];
+  for(let i=0;i<LIB.length;i++){
+    const t=LIB[i];
+    if(!textMatches(t,q)) continue;
+    if(!matchesRating(t,rating)) continue;
+    items.push([i,t]);
   }
-
-  for (const [idx, t] of items){
-    const isActive = (t.id === currentId);
-    const div = document.createElement('div');
-    div.className = 'item' + (isActive ? ' active' : '');
-    div.onclick = ()=> select(t.id);
-    const title  = t.display_title  || t.title  || '';
-    const artist = t.display_artist || t.artist || '';
-    div.innerHTML = `
+  for(const [idx,t] of items){
+    const isActive=(t.id===currentId);
+    const div=document.createElement('div');
+    div.className='item'+(isActive?' active':'');
+    div.onclick=()=>select(t.id);
+    const title=t.display_title||t.title||'';
+    const artist=t.display_artist||t.artist||'';
+    div.innerHTML=`
       <div class="icov"><img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"></div>
       <div class="itxt"><div class="ttl">${title}</div><div class="art">${artist}</div></div>
     `;
@@ -131,36 +133,101 @@ function buildList(){
   }
 }
 
+function safeWinName(s){
+  let name=(s||'card')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .slice(0,120) || 'card';
+  const base=name.replace(/\.+$/,'');
+  const upper=base.toUpperCase();
+  const reserved=new Set(['CON','PRN','AUX','NUL','COM1','COM2','COM3','COM4','COM5','COM6','COM7','COM8','COM9','LPT1','LPT2','LPT3','LPT4','LPT5','LPT6','LPT7','LPT8','LPT9']);
+  if(reserved.has(upper)) name = `${base}_`;
+  name = name.replace(/\.+$/,'');
+  if(!name) name='card';
+  return name;
+}
+
+function browserImageUrlFor(id){
+  const t = LIB.find(x=>x.id===id);
+  const base = safeWinName((t && (t.display_title || t.title)) || 'card') + '.png';
+  return `/api/render/${id}/${encodeURIComponent(base)}`;
+}
+
 async function select(id){
-  currentId = id;
+  currentId=id;
   buildList();
-  const r = await fetch(`/api/render/${id}`);
-  const blob = await r.blob();
-  const u = URL.createObjectURL(blob);
-  cardEl.src = u;
+
+  const isBridge = !!(window.pywebview && window.pywebview.api && window.pywebview.api.save_file);
+  if (isBridge){
+    const r=await fetch(`/api/render/${id}`);
+    const blob=await r.blob();
+    const u=URL.createObjectURL(blob);
+    cardEl.src=u;
+  } else {
+    cardEl.src = browserImageUrlFor(id);
+  }
   showPreview(true);
 }
 
-function download(){
-  if (!currentId) return;
+async function download(){
+  if(!currentId) return;
+  const t = LIB.find(x=>x.id===currentId);
+  const base = safeWinName((t && (t.display_title || t.title)) || 'card') + '.png';
+
+  const isBridge = !!(window.pywebview && window.pywebview.api && window.pywebview.api.save_file);
+  if (isBridge) {
+    const r = await fetch(`/api/render/${currentId}`);
+    const blob = await r.blob();
+    const b64 = await new Promise((res, rej)=>{
+      const fr = new FileReader();
+      fr.onerror = () => rej(new Error('reader'));
+      fr.onload = () => res(String(fr.result));
+      fr.readAsDataURL(blob);
+    });
+    try { await window.pywebview.api.save_file(base, b64); } catch(e){ console.error('save_file failed', e); }
+    return;
+  }
+
+  const href = browserImageUrlFor(currentId);
   const a = document.createElement('a');
-  a.href=`/api/render/${currentId}`;
-  a.download='card.png';
+  a.href = href;
+  a.download = base;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
+}
+
+function goRate(){
+  location.href = currentId ? (`/rate?select=${encodeURIComponent(currentId)}`) : '/rate';
 }
 
 async function load(){
-  const r = await fetch('/api/tracks'); 
+  const r = await fetch('/api/tracks');
   const j = await r.json();
   LIB = j.tracks || [];
   indexTracks();
   buildList();
-  showPreview(false);
+
+  const sel = qs('select');
+  if (sel && LIB.some(t=>t.id===sel)) {
+    await select(sel);
+  } else {
+    showPreview(false);
+  }
 }
 
 qbox.addEventListener('input', debounce(buildList, 120));
 window.download = download;
 window.select = select;
+window.goRate  = goRate;
+
+cardEl.addEventListener('contextmenu', async (e)=>{
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_file) {
+    e.preventDefault();
+    await download();
+  }
+});
 
 load();
 </script>

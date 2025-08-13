@@ -6,6 +6,7 @@ import urllib.error
 import subprocess
 import threading
 import webview
+import base64
 import socket
 import time
 import sys
@@ -93,35 +94,64 @@ def wait_for_health(url: str, timeout_per_try: float = 10.0, interval: float = 0
             pass
         time.sleep(interval)
 
+class Bridge:
+    def save_file(self, suggested_name: str, b64_png: str) -> bool:
+        try:
+            if b64_png.startswith('data:'):
+                b64_png = b64_png.split(',', 1)[1]
+            data = base64.b64decode(b64_png)
+
+            win = webview.windows[0]
+            if not suggested_name.lower().endswith('.png'):
+                suggested_name = suggested_name + '.png'
+
+            path = win.create_file_dialog(
+                webview.SAVE_DIALOG,
+                save_filename=suggested_name,
+                file_types=('PNG (*.png)',)
+            )
+            if not path:
+                return False
+            out_path = path if isinstance(path, str) else path[0]
+            with open(out_path, 'wb') as f:
+                f.write(data)
+            return True
+        except Exception as e:
+            print(f"[launcher] save_file failed: {e}", flush=True)
+            return False
+
 if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
     try:
-        multiprocessing.set_start_method("spawn")
-    except RuntimeError:
-        pass
+        import multiprocessing
+        multiprocessing.freeze_support()
+        try:
+            multiprocessing.set_start_method("spawn")
+        except RuntimeError:
+            pass
 
-    FROZEN = getattr(sys, "frozen", False)
+        FROZEN = getattr(sys, "frozen", False)
 
-    if FROZEN and already_running():
-        print("[launcher] another instance is already running; exiting.", flush=True)
-        sys.exit(0)
+        if FROZEN and already_running():
+            print("[launcher] another instance is already running; exiting.", flush=True)
+            sys.exit(0)
 
-    print("[launcher] Initializing backend server...", flush=True)
-    threading.Thread(target=run_flask, daemon=True).start()
+        print("[launcher] Initializing backend server...", flush=True)
+        threading.Thread(target=run_flask, daemon=True).start()
 
-    wait_for_health(HEALTH_URL, timeout_per_try=10.0, interval=0.5)
+        wait_for_health(HEALTH_URL, timeout_per_try=10.0, interval=0.5)
 
-    print("[launcher] Initializing webview...", flush=True)
-    win = webview.create_window("Rately", IP, width=1080, height=800)
-    win.events.closed += on_closed
-    
-    hwnd = windll.kernel32.GetConsoleWindow()
-    if hwnd:
-        windll.user32.ShowWindow(hwnd, 6)
-    
-    try:
-        webview.start(private_mode=False, storage_path=CONFIG_PATH)
-    finally:
+        print("[launcher] Initializing webview...", flush=True)
+        win = webview.create_window("Rately", IP, width=1080, height=800, js_api=Bridge())
+        win.events.closed += on_closed
+
+        hwnd = windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            windll.user32.ShowWindow(hwnd, 6)
+
+        try:
+            webview.start(private_mode=False, storage_path=CONFIG_PATH, debug=False)
+        finally:
+            _save_cookies()
+    except KeyboardInterrupt:
         _save_cookies()
-    
+        sys.exit(0)
