@@ -493,7 +493,6 @@ def api_rate(tid):
         write_rating(path, rating, comment)
         return jsonify(ok=True)
     except Exception as e:
-        # log server-side so you get a stack trace in the console
         app.logger.exception("Failed to save rating")
         return jsonify(ok=False, error=str(e)), 500
 

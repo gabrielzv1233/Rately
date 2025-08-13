@@ -79,6 +79,9 @@ html,body{ overflow:hidden }
 .modal-confirm{ position:absolute; left:50%; transform:translateX(-50%); bottom:14px }
 
 #toast{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#131724; border:1px solid #2a3147; color:#e0e6ff; padding:10px 14px; border-radius:12px; display:none }
+
+.queue-item.active{ border-color: var(--accent); background: linear-gradient(180deg, rgba(255,45,85,.08), transparent); }
+.queue-item.active .ratingpill{ border-color: rgba(255,45,85,.6); }
 {% endblock %}
 
 {% block body %}
@@ -107,7 +110,7 @@ html,body{ overflow:hidden }
           <button class="iconbtn" onclick="prev()" title="Prev"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zM20 6v12l-10-6z"/></svg></button>
           <button class="iconbtn" onclick="togglePlay()" id="playbtn" title="Play/Pause"><svg id="playicon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
           <button class="iconbtn" onclick="next()" title="Next"><svg viewBox="0 0 24 24"><path d="M18 6v12h-2V6zM4 6l10 6-10 6z"/></svg></button>
-          <button class="iconbtn" onclick="toggleQueue()" title="Queue">
+          <button class="iconbtn" onclick="toggleQueue()" title="Library">
             <svg viewBox="0 0 24 24">
               <circle cx="5" cy="7" r="2"></circle><rect x="9" y="6" width="10" height="2"></rect>
               <circle cx="5" cy="12" r="2"></circle><rect x="9" y="11" width="10" height="2"></rect>
@@ -121,8 +124,8 @@ html,body{ overflow:hidden }
 
   <div id="side" class="sidebar">
     <div class="queue-head">
-      <div class="label">Queue</div>
-      <input id="q" type="search" placeholder="Search…  (supports: rating:7-9, rating:>8)">
+      <div class="label">Library</div>
+      <input id="q" type="search" placeholder="Search library…">
     </div>
     <div id="queue" class="queue"></div>
     <button class="btn" style="margin:8px" onclick="location.href='/render'">Render</button>
@@ -150,7 +153,6 @@ html,body{ overflow:hidden }
 <div id="toast"></div>
 
 <script>
-/* ---------- State ---------- */
 let LIB = [];
 let idx = 0;
 let played = new Set();
@@ -159,7 +161,6 @@ let manualPopup = false;
 let suppressEndPopup = false;
 let modalOpen = false;
 
-/* ---------- DOM ---------- */
 const audio = document.getElementById('audio');
 const seek = document.getElementById('seek');
 const vol = document.getElementById('volume');
@@ -172,7 +173,17 @@ const queueEl = document.getElementById('queue');
 const container = document.querySelector('.container');
 const qbox = document.getElementById('q');
 
-/* ---------- Helpers: UI ---------- */
+vol.addEventListener('input', ()=>{ audio.volume = parseFloat(vol.value); });
+
+function saveVolume(){
+  const v = Math.max(0, Math.min(1, parseFloat(vol.value) || 0));
+  setCookie('rately_vol', String(v), 365);
+}
+vol.addEventListener('change', saveVolume);
+vol.addEventListener('mouseup', saveVolume);
+vol.addEventListener('touchend', saveVolume);
+vol.addEventListener('keyup', (e)=>{ if(e.key === 'Enter' || e.key === ' ') saveVolume(); });
+
 function toast(msg){
   const el = document.getElementById('toast');
   el.textContent = msg; el.style.display='block';
@@ -185,7 +196,6 @@ function prettyTime(s){
 }
 function wipeFields(){ document.getElementById('rating').value=''; document.getElementById('comment').value=''; }
 
-/* ---------- Player ---------- */
 function loadCurrent(play=false){
   if(!LIB.length) return;
   wipeFields();
@@ -199,11 +209,11 @@ function loadCurrent(play=false){
   buildQueue();
   if (play!==false) audio.play();
 }
+
 function prev(){ if(!LIB.length) return; idx=(idx-1+LIB.length)%LIB.length; loadCurrent(true); }
 function next(){ if(!LIB.length) return; if(!played.has(idx)) played.add(idx); idx=(idx+1)%LIB.length; loadCurrent(true); }
 function togglePlay(){ if(audio.paused) audio.play(); else audio.pause(); }
 
-/* ---------- Audio events ---------- */
 audio.addEventListener('play', ()=>{ document.getElementById('playicon').innerHTML='<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>'; });
 audio.addEventListener('pause', ()=>{ document.getElementById('playicon').innerHTML='<path d="M8 5v14l11-7z"/>'; });
 audio.addEventListener('timeupdate', ()=>{
@@ -221,7 +231,6 @@ audio.addEventListener('ended', ()=>{
   openRating(false);
 });
 
-/* ---------- Rating modal ---------- */
 function openRating(manual){
   manualPopup = !!manual; autoPopup = !manual; modalOpen = true;
 
@@ -229,7 +238,6 @@ function openRating(manual){
   const rInput = document.getElementById('rating');
   const cInput = document.getElementById('comment');
 
-  // prefill rating (no trailing .00)
   if (t && t.rating_exact != null) {
     const n = Number(t.rating_exact);
     rInput.value = Number.isInteger(n) ? String(n) : String(n.toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'));
@@ -237,7 +245,6 @@ function openRating(manual){
     rInput.value = '';
   }
 
-  // prefill comment (if present)
   cInput.value = (t && t.comment) ? t.comment : '';
 
   document.getElementById('modal').classList.add('show');
@@ -256,12 +263,12 @@ document.addEventListener('keydown', (ev)=>{
     ev.preventDefault(); cancelModal(true);
   }
 });
+
 async function submitRating(){
   const t = LIB[idx]; if(!t) return;
   const ratingStr = document.getElementById('rating').value.trim();
   const cmt = document.getElementById('comment').value.trim();
 
-  // empty rating => remove rating
   const val = ratingStr === '' ? null : parseFloat(ratingStr);
   if (val !== null && !isFinite(val)) { toast('Enter a number like 7.85'); return; }
 
@@ -273,11 +280,9 @@ async function submitRating(){
   const j = await r.json();
   if(!j.ok){ toast('Failed to save'); return; }
 
-  // update local cache
-  t.rating_exact = val;            // null or number
+  t.rating_exact = val;
   t.comment = cmt;
 
-  // rebuild queue with clean formatting
   buildQueue();
   toast('Saved ✔');
   closeModal();
@@ -293,12 +298,11 @@ function fmtRating(n){
          String(x.toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'));
 }
 
-/* ---------- Search / Filter (single box) ---------- */
 function normalizeBase(s){
   return (s || "")
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g,''); // strip diacritics
+    .replace(/[\u0300-\u036f]/g,'');
 }
 function toWords(s){
   return normalizeBase(s).replace(/[^a-z0-9]+/gi,' ').trim().split(/\s+/).filter(Boolean);
@@ -327,12 +331,10 @@ function indexTracks(){
     const title  = t.display_title  || t.title  || "";
     const artist = t.display_artist || t.artist || "";
     const joined = `${title} ${artist}`;
-    t._flat = toFlat(joined); // only a-z0-9, no spaces
+    t._flat = toFlat(joined);
   }
 }
 
-
-// rating:7-9  | rating:>8.2 | rating:<6
 function parseInlineRating(q){
   const m = q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
   if(!m) return null;
@@ -346,24 +348,21 @@ function matchesRating(track, filt){
   const r = track.rating_exact;
   if (!filt) return true;
   const {op,a,b} = filt;
-  if (b!=null){ // range
+  if (b!=null){
     const lo=Math.min(a,b), hi=Math.max(a,b);
     return r!=null && r>=lo && r<=hi;
   }
   if (op.includes('>')) return r!=null && r>a;
   if (op.includes('<')) return r!=null && r<a;
-  // equality not strictly supported; treat as minimum
   return r!=null && r>=a;
 }
 
 function tokenMatch(token, t){
   if (!token) return true;
-  // quick contains on spaced text
   if (t._searchText.includes(token)) return true;
-  // flat contains (ignores punctuation/spaces)
   const flatTok = token.replace(/[^a-z0-9]+/gi,'');
   if (flatTok && t._flat.includes(flatTok)) return true;
-  // fuzzy per word (30% edits)
+  
   const th = Math.max(1, Math.ceil(token.length * 0.30));
   for (const w of t._words){
     if (Math.abs(w.length - token.length) > th) continue;
@@ -388,15 +387,14 @@ function textMatches(t, q){
 function normalizeSimple(s){
   return (s || "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ") // keep word breaks for tokenizing
+    .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
 
 function toFlat(s){
-  return normalizeSimple(s).replace(/\s+/g, ""); // remove spaces too
+  return normalizeSimple(s).replace(/\s+/g, "");
 }
 
-/* ---------- Build queue ---------- */
 function currentFilterFromBox(){
   const q = qbox.value || '';
   const inline = parseInlineRating(q);
@@ -411,19 +409,16 @@ function buildQueue(){
 
   const items = [];
   for (let i = 0; i < LIB.length; i++){
-    if (i === idx) continue;
-    if (played.has(i)) continue;
-
     const t = LIB[i];
     if (!textMatches(t, q)) continue;
     if (!matchesRating(t, rating)) continue;
-
     items.push([i, t]);
   }
 
   for (const [i, t] of items){
+    const isActive = (i === idx);
     const div = document.createElement('div');
-    div.className = 'queue-item';
+    div.className = 'queue-item' + (isActive ? ' active' : '');
     div.onclick = () => { idx = i; loadCurrent(true); };
 
     div.innerHTML = `
@@ -443,13 +438,11 @@ function buildQueue(){
   }
 }
 
-/* ---------- Debounce ---------- */
 function debounce(fn, ms){
   let to=null;
   return (...args)=>{ clearTimeout(to); to=setTimeout(()=>fn(...args), ms); };
 }
 
-/* ---------- Load lib + boot ---------- */
 async function loadLib(){
   const r = await fetch('/api/tracks');
   const j = await r.json();
@@ -462,14 +455,38 @@ async function loadLib(){
 }
 
 (async function boot(){
+  const v = getCookie('rately_vol');
+  if (v !== null){
+    const fv = Math.max(0, Math.min(1, parseFloat(v)));
+    if (isFinite(fv)){
+      vol.value = String(fv);
+      audio.volume = fv;
+    }
+  }
+
   const r = await fetch('/api/tracks');
   const j = await r.json();
   LIB = j.tracks || [];
-  if(!j.tracks || !j.tracks.length){ await pickLib(); await loadLib(); }
-  else { idx=0; played=new Set(); indexTracks(); buildQueue(); loadCurrent(); }
 
-  // live search
+  idx = 0;
+  played = new Set();
+  indexTracks();
+  buildQueue();
+  if (LIB.length) loadCurrent();
+  else { await pickLib(); await loadLib(); }
+
   qbox.addEventListener('input', debounce(buildQueue, 120));
 })();
+
+function setCookie(name, value, days){
+  const d = new Date();
+  d.setTime(d.getTime() + (days*24*60*60*1000));
+  document.cookie = `${name}=${encodeURIComponent(value)};expires=${d.toUTCString()};path=/;SameSite=Lax`;
+}
+function getCookie(name){
+  const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[-[\]/{}()*+?.\\^$|]/g,"\\$&") + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 </script>
 {% endblock %}
