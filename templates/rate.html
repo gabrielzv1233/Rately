@@ -172,6 +172,19 @@ const artistEl = document.getElementById('artist');
 const queueEl = document.getElementById('queue');
 const container = document.querySelector('.container');
 const qbox = document.getElementById('q');
+let sideDetached = false;
+let sideNode = side;
+
+function toggleQueue(){
+  if (!sideDetached){
+    if (sideNode.parentNode) sideNode.parentNode.removeChild(sideNode);
+    sideDetached = true;
+  } else {
+    container.appendChild(sideNode);
+    sideDetached = false;
+    buildQueue();
+  }
+}
 
 vol.addEventListener('input', ()=>{ audio.volume = parseFloat(vol.value); });
 
