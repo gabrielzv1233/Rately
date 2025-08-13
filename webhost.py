@@ -361,17 +361,24 @@ def pick_library_status():
 
     return jsonify(ok=True, done=done, path=path, canceled=canceled)
 
+def should_auto_pick_on_load() -> bool:
+    return bool(FORCE_SELECT_ON_START and not CONFIG.get("library"))
+
 @app.get("/")
 def home():
-    return render_template("home.html", theme=THEME)
+    return render_template("home.html", theme=THEME, auto_pick_on_load=should_auto_pick_on_load())
 
 @app.get("/rate")
 def rate_page():
-    return render_template("rate.html", theme=THEME)
+    return render_template("rate.html", theme=THEME, auto_pick_on_load=should_auto_pick_on_load())
 
 @app.get("/render")
 def render_page():
-    return render_template("render.html", theme=THEME, CARDRES=f"{DEFAULT_IMAGE_SIZE[0]}x{DEFAULT_IMAGE_SIZE[1]}")
+    return render_template("render.html", theme=THEME, auto_pick_on_load=should_auto_pick_on_load(), CARDRES=f"{DEFAULT_IMAGE_SIZE[0]}x{DEFAULT_IMAGE_SIZE[1]}")
+    
+@app.get("/api/library_status")
+def api_library_status():
+    return jsonify(has_library=bool(CONFIG.get("library")))
 
 @app.post("/set_library")
 def set_library():
