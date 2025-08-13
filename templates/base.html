@@ -52,36 +52,32 @@
     } catch { return false; }
   }
 
-  async function startPickerJobOnce() {
-    const r = await fetch('/pick_library_start', { method: 'POST' });
-    const j = await r.json();
-    if (!j || !j.ok || !j.job_id) return { canceled: true };
+  async function startPickerJobOnce(){
+    const s = await fetch('/pick_library_start', { method: 'POST' });
+    const jr = await s.json();
+    if (!jr.ok) return { ok: false };
 
-    const id = j.job_id;
-    let wait = RATELY_CFG.poll.start, tries = 0;
+    const id = jr.job_id;
+    for (let i = 0; i < 200; i++) {
+      await new Promise(res => setTimeout(res, 100));
+      const st = await fetch('/pick_library_status?job_id=' + id);
+      const sj = await st.json();
 
-    while (true) {
-      await new Promise(res => setTimeout(res, wait));
-      tries++;
-      try {
-        const st = await fetch('/pick_library_status?job_id=' + id);
-        const sj = await st.json();
-        if (sj.done) {
-          if (sj.path) {
-            await fetch('/set_library', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: sj.path })
-            });
-            return { ok: true };
-          } else {
-            return { canceled: true };
-          }
+      if (sj.done) {
+        if (sj.path) {
+          await fetch('/set_library', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: sj.path })
+          });
+          window.location.reload();
+          return { ok: true };
+        } else {
+          return { canceled: true };
         }
-      } catch {}
-      wait = Math.min(RATELY_CFG.poll.max, wait + RATELY_CFG.poll.step);
-      if (tries > RATELY_CFG.poll.maxTries) return { canceled: true };
+      }
     }
+    return { ok: false };
   }
 
   async function ensureLibrarySelected() {

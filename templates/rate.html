@@ -13,8 +13,20 @@
 }
 html,body{ overflow:hidden }
 
-.queue-head{ padding:12px 16px; font-weight:800; border-bottom:1px solid var(--border) }
-.queue{ overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px; height:calc(100% - 48px) }
+/* Header row with inline search */
+.queue-head{
+  padding:12px 12px; font-weight:800; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:10px;
+}
+.queue-head .label{ white-space:nowrap }
+.queue-head input[type="search"]{
+  flex:1; height:34px; border-radius:10px; border:1px solid var(--border);
+  background:var(--panel2); color:var(--text); padding:6px 10px; outline:none;
+}
+.queue-head input[type="search"]::placeholder{ color:#8b92a6 }
+
+/* Let the list take remaining space naturally */
+.queue{ flex:1; overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px; }
 .queue-item{
   display:flex; align-items:center; gap:12px; padding:10px; border:1px solid var(--border);
   border-radius:12px; background:var(--panel2); cursor:pointer; transition:transform .15s, background .2s;
@@ -68,6 +80,7 @@ html,body{ overflow:hidden }
 
 #toast{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#131724; border:1px solid #2a3147; color:#e0e6ff; padding:10px 14px; border-radius:12px; display:none }
 {% endblock %}
+
 {% block body %}
 <div class="container">
   <div class="main">
@@ -107,9 +120,12 @@ html,body{ overflow:hidden }
   </div>
 
   <div id="side" class="sidebar">
-    <div class="queue-head">Queue</div>
+    <div class="queue-head">
+      <div class="label">Queue</div>
+      <input id="q" type="search" placeholder="Search…  (supports: rating:7-9, rating:>8)">
+    </div>
     <div id="queue" class="queue"></div>
-    </button><button class="btn" onclick="location.href='/render'">Render </button>
+    <button class="btn" style="margin:8px" onclick="location.href='/render'">Render</button>
   </div>
 </div>
 
@@ -134,6 +150,7 @@ html,body{ overflow:hidden }
 <div id="toast"></div>
 
 <script>
+/* ---------- State ---------- */
 let LIB = [];
 let idx = 0;
 let played = new Set();
@@ -142,6 +159,7 @@ let manualPopup = false;
 let suppressEndPopup = false;
 let modalOpen = false;
 
+/* ---------- DOM ---------- */
 const audio = document.getElementById('audio');
 const seek = document.getElementById('seek');
 const vol = document.getElementById('volume');
@@ -151,67 +169,23 @@ const cover = document.getElementById('cover');
 const titleEl = document.getElementById('title');
 const artistEl = document.getElementById('artist');
 const queueEl = document.getElementById('queue');
-const side = document.getElementById('side');
 const container = document.querySelector('.container');
-let sideDetached = false;
-let sideNode = side;
+const qbox = document.getElementById('q');
 
-function toggleQueue(){
-  if (!sideDetached){
-    if (sideNode.parentNode) sideNode.parentNode.removeChild(sideNode);
-    sideDetached = true;
-  } else {
-    container.appendChild(sideNode);
-    sideDetached = false;
-    buildQueue();
-  }
-}
-
+/* ---------- Helpers: UI ---------- */
 function toast(msg){
   const el = document.getElementById('toast');
   el.textContent = msg; el.style.display='block';
   setTimeout(()=>{ el.style.display='none'; }, 1600);
 }
-
-async function loadLib(){
-  const r = await fetch('/api/tracks');
-  const j = await r.json();
-  LIB = j.tracks || [];
-  idx = 0; played = new Set();
-  buildQueue();
-  if (LIB.length) loadCurrent();
-  else toast('No tracks found');
-}
-
-function buildQueue(){
-  if (!queueEl) return;
-  queueEl.innerHTML = '';
-  LIB.forEach((t,i)=>{
-    if (i===idx) return;
-    if (played.has(i)) return;
-    const div = document.createElement('div');
-    div.className='queue-item';
-    div.onclick=()=>{ idx=i; loadCurrent(true); };
-    div.innerHTML = `
-      <div class="qcov"><img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"/></div>
-      <div class="qtxt">
-        <div class="ttl">${t.display_title || t.title}</div>
-        <div class="art">${t.display_artist || t.artist || ''}</div>
-      </div>
-      ${ t.rating_exact !== null ? `<div class="ratingpill">${t.rating_exact.toFixed(2)}/10</div>` : '' }
-    `;
-    queueEl.appendChild(div);
-  });
-}
-
 function prettyTime(s){
   if(!isFinite(s)||s<0) s=0;
   const m = Math.floor(s/60), sec = Math.floor(s%60).toString().padStart(2,'0');
   return `${m}:${sec}`;
 }
-
 function wipeFields(){ document.getElementById('rating').value=''; document.getElementById('comment').value=''; }
 
+/* ---------- Player ---------- */
 function loadCurrent(play=false){
   if(!LIB.length) return;
   wipeFields();
@@ -225,13 +199,13 @@ function loadCurrent(play=false){
   buildQueue();
   if (play!==false) audio.play();
 }
-
 function prev(){ if(!LIB.length) return; idx=(idx-1+LIB.length)%LIB.length; loadCurrent(true); }
 function next(){ if(!LIB.length) return; if(!played.has(idx)) played.add(idx); idx=(idx+1)%LIB.length; loadCurrent(true); }
 function togglePlay(){ if(audio.paused) audio.play(); else audio.pause(); }
+
+/* ---------- Audio events ---------- */
 audio.addEventListener('play', ()=>{ document.getElementById('playicon').innerHTML='<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>'; });
 audio.addEventListener('pause', ()=>{ document.getElementById('playicon').innerHTML='<path d="M8 5v14l11-7z"/>'; });
-
 audio.addEventListener('timeupdate', ()=>{
   if(!audio.duration) return;
   seek.value = (audio.currentTime/audio.duration)*100;
@@ -240,7 +214,6 @@ audio.addEventListener('timeupdate', ()=>{
 });
 seek.addEventListener('input', ()=>{ if(audio.duration) audio.currentTime = (seek.value/100)*audio.duration; });
 vol.addEventListener('input', ()=>{ audio.volume = parseFloat(vol.value); });
-
 audio.addEventListener('ended', ()=>{
   if (manualPopup){ next(); return; }
   if (suppressEndPopup){ next(); return; }
@@ -248,8 +221,25 @@ audio.addEventListener('ended', ()=>{
   openRating(false);
 });
 
+/* ---------- Rating modal ---------- */
 function openRating(manual){
   manualPopup = !!manual; autoPopup = !manual; modalOpen = true;
+
+  const t = LIB[idx];
+  const rInput = document.getElementById('rating');
+  const cInput = document.getElementById('comment');
+
+  // prefill rating (no trailing .00)
+  if (t && t.rating_exact != null) {
+    const n = Number(t.rating_exact);
+    rInput.value = Number.isInteger(n) ? String(n) : String(n.toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'));
+  } else {
+    rInput.value = '';
+  }
+
+  // prefill comment (if present)
+  cInput.value = (t && t.comment) ? t.comment : '';
+
   document.getElementById('modal').classList.add('show');
 }
 function cancelModal(escCancel){
@@ -261,31 +251,225 @@ function closeModal(){
   setTimeout(()=>{ autoPopup=false; manualPopup=false; modalOpen=false; },100);
 }
 function bgClose(e){ if(e.target.id==='modal') cancelModal(false); }
-
 document.addEventListener('keydown', (ev)=>{
   if (ev.key === 'Escape' && modalOpen){
     ev.preventDefault(); cancelModal(true);
   }
 });
-
 async function submitRating(){
   const t = LIB[idx]; if(!t) return;
-  const val = parseFloat(document.getElementById('rating').value);
+  const ratingStr = document.getElementById('rating').value.trim();
   const cmt = document.getElementById('comment').value.trim();
-  if(!isFinite(val)){ toast('Enter a number like 7.85'); return; }
-  const r = await fetch(`/api/rate/${t.id}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({rating:val, comment:cmt})});
+
+  // empty rating => remove rating
+  const val = ratingStr === '' ? null : parseFloat(ratingStr);
+  if (val !== null && !isFinite(val)) { toast('Enter a number like 7.85'); return; }
+
+  const r = await fetch(`/api/rate/${t.id}`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ rating: val, comment: cmt })
+  });
   const j = await r.json();
   if(!j.ok){ toast('Failed to save'); return; }
-  toast('Saved ✔'); LIB[idx].rating_exact = val; closeModal();
-  if(autoPopup){ next(); } else { suppressEndPopup = true; }
+
+  // update local cache
+  t.rating_exact = val;            // null or number
+  t.comment = cmt;
+
+  // rebuild queue with clean formatting
   buildQueue();
+  toast('Saved ✔');
+  closeModal();
+
+  if(autoPopup){ next(); } else { suppressEndPopup = true; }
+}
+
+function fmtRating(n){
+  if (n == null) return '';
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '';
+  return Number.isInteger(x) ? String(x) :
+         String(x.toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'));
+}
+
+/* ---------- Search / Filter (single box) ---------- */
+function normalizeBase(s){
+  return (s || "")
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,''); // strip diacritics
+}
+function toWords(s){
+  return normalizeBase(s).replace(/[^a-z0-9]+/gi,' ').trim().split(/\s+/).filter(Boolean);
+}
+function flatStr(s){ return toWords(s).join(''); }
+
+function levenshtein(a,b){
+  const m=a.length, n=b.length;
+  if(m===0) return n; if(n===0) return m;
+  const dp=new Array(n+1);
+  for(let j=0;j<=n;j++) dp[j]=j;
+  for(let i=1;i<=m;i++){
+    let prev=dp[0]; dp[0]=i;
+    for(let j=1;j<=n;j++){
+      const tmp=dp[j];
+      dp[j]= (a[i-1]===b[j-1]) ? prev :
+        1 + Math.min(prev, dp[j], dp[j-1]);
+      prev=tmp;
+    }
+  }
+  return dp[n];
+}
+
+function indexTracks(){
+  for (const t of LIB){
+    const title  = t.display_title  || t.title  || "";
+    const artist = t.display_artist || t.artist || "";
+    const joined = `${title} ${artist}`;
+    t._flat = toFlat(joined); // only a-z0-9, no spaces
+  }
+}
+
+
+// rating:7-9  | rating:>8.2 | rating:<6
+function parseInlineRating(q){
+  const m = q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
+  if(!m) return null;
+  const op = m[1];
+  const a = parseFloat(m[2]);
+  const b = m[3] ? parseFloat(m[3]) : null;
+  return { op, a, b, raw:m[0] };
+}
+
+function matchesRating(track, filt){
+  const r = track.rating_exact;
+  if (!filt) return true;
+  const {op,a,b} = filt;
+  if (b!=null){ // range
+    const lo=Math.min(a,b), hi=Math.max(a,b);
+    return r!=null && r>=lo && r<=hi;
+  }
+  if (op.includes('>')) return r!=null && r>a;
+  if (op.includes('<')) return r!=null && r<a;
+  // equality not strictly supported; treat as minimum
+  return r!=null && r>=a;
+}
+
+function tokenMatch(token, t){
+  if (!token) return true;
+  // quick contains on spaced text
+  if (t._searchText.includes(token)) return true;
+  // flat contains (ignores punctuation/spaces)
+  const flatTok = token.replace(/[^a-z0-9]+/gi,'');
+  if (flatTok && t._flat.includes(flatTok)) return true;
+  // fuzzy per word (30% edits)
+  const th = Math.max(1, Math.ceil(token.length * 0.30));
+  for (const w of t._words){
+    if (Math.abs(w.length - token.length) > th) continue;
+    if (levenshtein(token, w) <= th) return true;
+  }
+  return false;
+}
+
+function textMatches(t, q){
+  const qNorm = normalizeSimple(q || "");
+  if (!qNorm) return true;
+  const tokens = qNorm.split(/\s+/).filter(Boolean).map(tok => tok.replace(/\s+/g,""));
+  if (!tokens.length) return true;
+
+  const hay = t._flat || "";
+  for (const tok of tokens){
+    if (!hay.includes(tok)) return false;
+  }
+  return true;
+}
+
+function normalizeSimple(s){
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ") // keep word breaks for tokenizing
+    .trim();
+}
+
+function toFlat(s){
+  return normalizeSimple(s).replace(/\s+/g, ""); // remove spaces too
+}
+
+/* ---------- Build queue ---------- */
+function currentFilterFromBox(){
+  const q = qbox.value || '';
+  const inline = parseInlineRating(q);
+  return { q, rating: inline };
+}
+
+function buildQueue(){
+  if (!queueEl) return;
+  queueEl.innerHTML = '';
+
+  const { q, rating } = currentFilterFromBox();
+
+  const items = [];
+  for (let i = 0; i < LIB.length; i++){
+    if (i === idx) continue;
+    if (played.has(i)) continue;
+
+    const t = LIB[i];
+    if (!textMatches(t, q)) continue;
+    if (!matchesRating(t, rating)) continue;
+
+    items.push([i, t]);
+  }
+
+  for (const [i, t] of items){
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    div.onclick = () => { idx = i; loadCurrent(true); };
+
+    div.innerHTML = `
+      <div class="qcov">
+        <img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"/>
+      </div>
+      <div class="qtxt">
+        <div class="ttl">${t.display_title || t.title}</div>
+        <div class="art">${t.display_artist || t.artist || ''}</div>
+      </div>
+      ${t.rating_exact !== null && t.rating_exact !== undefined
+          ? `<div class="ratingpill">${fmtRating(t.rating_exact)}/10</div>`
+          : ''
+      }
+    `;
+    queueEl.appendChild(div);
+  }
+}
+
+/* ---------- Debounce ---------- */
+function debounce(fn, ms){
+  let to=null;
+  return (...args)=>{ clearTimeout(to); to=setTimeout(()=>fn(...args), ms); };
+}
+
+/* ---------- Load lib + boot ---------- */
+async function loadLib(){
+  const r = await fetch('/api/tracks');
+  const j = await r.json();
+  LIB = j.tracks || [];
+  idx = 0; played = new Set();
+  indexTracks();
+  buildQueue();
+  if (LIB.length) loadCurrent();
+  else toast('No tracks found');
 }
 
 (async function boot(){
   const r = await fetch('/api/tracks');
   const j = await r.json();
-  if(!j.tracks || !j.tracks.length){ await pickLib(); }
-  else { LIB=j.tracks; idx=0; played=new Set(); buildQueue(); loadCurrent(); }
+  LIB = j.tracks || [];
+  if(!j.tracks || !j.tracks.length){ await pickLib(); await loadLib(); }
+  else { idx=0; played=new Set(); indexTracks(); buildQueue(); loadCurrent(); }
+
+  // live search
+  qbox.addEventListener('input', debounce(buildQueue, 120));
 })();
 </script>
 {% endblock %}

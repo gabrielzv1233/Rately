@@ -230,24 +230,32 @@ def read_meta(path: str):
         "cover": (cover_bytes, cover_mime)
     }
 
-def write_rating(path: str, r10: float, comment_text: str | None):
+def write_rating(path: str, r10: float | None, comment_text: str | None):
     def clamp(v, lo, hi): return max(lo, min(hi, v))
-    r10 = round(clamp(float(r10), 0.0, 10.0), 2)
+    def is_noneish(x):
+        try: return x is None or (isinstance(x, float) and (x != x))
+        except: return x is None
     ext = os.path.splitext(path)[1].lower()
+
+    if not is_noneish(r10):
+        r10 = round(clamp(float(r10), 0.0, 10.0), 2)
 
     def append_comment(existing, newtxt):
         if not newtxt: return existing
-        if not existing or str(existing).strip() == "":
-            return newtxt
+        if not existing or str(existing).strip() == "": return newtxt
         return f"{existing} | {newtxt}"
 
     if ext == ".mp3":
         try:
             try: tags = ID3(path)
             except ID3NoHeaderError: tags = ID3()
-            pop = int(round((r10/10.0)*255))
-            tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
-            tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
+            if is_noneish(r10):
+                tags.delall("POPM")
+                tags.delall("TXXX:EXACT_RATING")
+            else:
+                pop = int(round((r10/10.0)*255))
+                tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
+                tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
             if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=comment_text))
             tags.save(path)
         except Exception as e:
@@ -255,25 +263,39 @@ def write_rating(path: str, r10: float, comment_text: str | None):
 
     elif ext == ".flac":
         f = FLAC(path)
-        f["RATING"] = [str(int(round(r10*10)))]
-        f["EXACT_RATING"] = [f"{r10:.2f}"]
-        f["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
+        if is_noneish(r10):
+            for k in ("RATING","EXACT_RATING","FMPS_RATING"):
+                if k in f: del f[k]
+        else:
+            f["RATING"] = [str(int(round(r10*10)))]
+            f["EXACT_RATING"] = [f"{r10:.2f}"]
+            f["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
         if comment_text: f["comment"] = [append_comment(f.get("comment", [None])[0], comment_text)]
         f.save()
 
     elif ext == ".ogg":
         og = OggVorbis(path)
-        og["RATING"] = [str(int(round(r10*10)))]
-        og["EXACT_RATING"] = [f"{r10:.2f}"]
-        og["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
+        if is_noneish(r10):
+            for k in ("RATING","EXACT_RATING","FMPS_RATING"):
+                if k in og: del og[k]
+        else:
+            og["RATING"] = [str(int(round(r10*10)))]
+            og["EXACT_RATING"] = [f"{r10:.2f}"]
+            og["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
         if comment_text: og["comment"] = [append_comment(og.get("comment", [None])[0], comment_text)]
         og.save()
 
     elif ext == ".m4a":
         mp = MP4(path)
         if mp.tags is None: mp.add_tags()
-        mp.tags["----:com.apple.iTunes:EXACT_RATING"] = [MP4FreeForm(f"{r10:.2f}".encode("utf-8"))]
-        mp.tags["rate"] = [int(round(r10*10))]
+        if is_noneish(r10):
+            for k in ("----:com.apple.iTunes:EXACT_RATING",
+                      "----:com.apple.iTunes:RATE10",
+                      "rate"):
+                if k in mp.tags: del mp.tags[k]
+        else:
+            mp.tags["----:com.apple.iTunes:EXACT_RATING"] = [MP4FreeForm(f"{r10:.2f}".encode("utf-8"))]
+            mp.tags["----:com.apple.iTunes:RATE10"] = [MP4FreeForm(f"{int(round(r10*10))}".encode("utf-8"))]
         if comment_text:
             prev = mp.tags.get("\xa9cmt", [""])[0]
             mp.tags["\xa9cmt"] = [append_comment(prev, comment_text)]
@@ -283,11 +305,14 @@ def write_rating(path: str, r10: float, comment_text: str | None):
         w = WAVE(path)
         try:
             tags = w.tags
-            if tags is None:
-                tags = ID3(); w.tags = tags
-            pop = int(round((r10/10.0)*255))
-            tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
-            tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
+            if tags is None: tags = ID3(); w.tags = tags
+            if is_noneish(r10):
+                tags.delall("POPM")
+                tags.delall("TXXX:EXACT_RATING")
+            else:
+                pop = int(round((r10/10.0)*255))
+                tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
+                tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
             if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=comment_text))
             w.save()
         except Exception:
@@ -417,6 +442,7 @@ def api_tracks():
             "duration": meta["duration"],
             "rating_exact": meta["rating_exact"],
             "rating_stars": meta["rating_stars"],
+            "comment": meta["comment"],
         })
     return jsonify(tracks=tracks)
 
@@ -454,15 +480,21 @@ def cover_route(tid):
 
 @app.post("/api/rate/<tid>")
 def api_rate(tid):
-    try: path = path_for_tid(tid)
-    except: return jsonify(ok=False, error="Not found"), 404
+    try:
+        path = path_for_tid(tid)
+    except:
+        return jsonify(ok=False, error="Not found"), 404
+
     body = request.get_json(force=True, silent=True) or {}
     rating = body.get("rating")
     comment = body.get("comment")
+
     try:
         write_rating(path, rating, comment)
         return jsonify(ok=True)
     except Exception as e:
+        # log server-side so you get a stack trace in the console
+        app.logger.exception("Failed to save rating")
         return jsonify(ok=False, error=str(e)), 500
 
 def draw_card(path, width, height):
