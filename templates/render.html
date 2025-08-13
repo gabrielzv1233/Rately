@@ -109,25 +109,37 @@ function currentFilterFromBox(){
 
 function buildList(){
   if(!listEl) return;
-  listEl.innerHTML='';
-  const {q,rating}=currentFilterFromBox();
-  const items=[];
-  for(let i=0;i<LIB.length;i++){
-    const t=LIB[i];
-    if(!textMatches(t,q)) continue;
-    if(!matchesRating(t,rating)) continue;
-    items.push([i,t]);
+  listEl.innerHTML = '';
+
+  const { q, rating, rated, ratedInvert } = currentFilterFromBox();
+
+  const items = [];
+  for (let i = 0; i < LIB.length; i++){
+    const t = LIB[i];
+    if (!textMatches(t, q)) continue;
+    if (!matchesRated(t, rated, ratedInvert)) continue;
+    if (!matchesRatingExt(t, rating)) continue;
+    items.push([i, t]);
   }
-  for(const [idx,t] of items){
-    const isActive=(t.id===currentId);
-    const div=document.createElement('div');
-    div.className='item'+(isActive?' active':'');
-    div.onclick=()=>select(t.id);
-    const title=t.display_title||t.title||'';
-    const artist=t.display_artist||t.artist||'';
-    div.innerHTML=`
+
+  for (const [, t] of items){
+    const isActive = (t.id === currentId);
+    const div = document.createElement('div');
+    div.className = 'item' + (isActive ? ' active' : '');
+    div.onclick = () => select(t.id);
+
+    const title  = t.display_title  || t.title  || '';
+    const artist = t.display_artist || t.artist || '';
+    div.innerHTML = `
       <div class="icov"><img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"></div>
-      <div class="itxt"><div class="ttl">${title}</div><div class="art">${artist}</div></div>
+      <div class="itxt">
+        <div class="ttl">${title}</div>
+        <div class="art">${artist}</div>
+      </div>
+      ${t.rating_exact !== null && t.rating_exact !== undefined
+        ? `<div class="ratingpill">${Number.isInteger(+t.rating_exact) ? +t.rating_exact : Number(t.rating_exact).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1')}/10</div>`
+        : ''
+      }
     `;
     listEl.appendChild(div);
   }
@@ -230,5 +242,81 @@ cardEl.addEventListener('contextmenu', async (e)=>{
 });
 
 load();
+
+function parseHashFilters(q){
+  let text = q || '';
+  const ratedRe  = /#([!-])?\s*rated\b/i;
+  const ratingRe = /#([!-])?\s*rating\s*:\s*([0-9]+(?:\.[0-9]+)?)(?:\s*-\s*([0-9]+(?:\.[0-9]+)?))?/i;
+
+  let rated = null, ratedInvert = false;
+  let rating = null, ratingInvert = false;
+
+  const mr = text.match(ratedRe);
+  if (mr){
+    rated = true;
+    ratedInvert = (mr[1] === '!' || mr[1] === '-');
+    text = text.replace(mr[0], ' ').trim();
+  }
+
+  const mrat = text.match(ratingRe);
+  if (mrat){
+    const a = parseFloat(mrat[2]);
+    const b = (mrat[3] != null) ? parseFloat(mrat[3]) : a;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    rating = { min: lo, max: hi };
+    ratingInvert = (mrat[1] === '!' || mrat[1] === '-');
+    text = text.replace(mrat[0], ' ').trim();
+  }
+
+  return { text, rated, ratedInvert, rating, ratingInvert };
+}
+
+function matchesRated(track, ratedFlag, invert){
+  if (ratedFlag == null) return true;
+  const ok = (track.rating_exact != null);
+  return invert ? !ok : ok;
+}
+
+function matchesRatingExt(track, filt){
+  if (!filt) return true;
+  const r = track.rating_exact;
+  let ok = true;
+
+  if (filt.min != null && filt.max != null){
+    ok = (r != null && r >= filt.min && r <= filt.max);
+  } else if (filt.op){
+    const {op, a, b} = filt;
+    if (b != null){
+      const lo = Math.min(a,b), hi = Math.max(a,b);
+      ok = (r != null && r >= lo && r <= hi);
+    } else if (op.includes('>')) ok = (r != null && r >  a);
+      else if (op.includes('<')) ok = (r != null && r <  a);
+      else ok = (r != null && r >= a);
+  } else if (filt.a != null && filt.b != null){
+    const lo = Math.min(filt.a, filt.b), hi = Math.max(filt.a, filt.b);
+    ok = (r != null && r >= lo && r <= hi);
+  } else if (filt.a != null){
+    ok = (r != null && Math.abs(r - filt.a) < 1e-9);
+  }
+
+  return filt.invert ? !ok : ok;
+}
+
+function currentFilterFromBox(){
+  const raw = (qbox && qbox.value) ? qbox.value : '';
+  const hf = parseHashFilters(raw);
+
+  const inline = parseInlineRating(hf.text);
+
+  let ratingFilt = null;
+  if (hf.rating){
+    ratingFilt = { min: hf.rating.min, max: hf.rating.max, invert: !!hf.ratingInvert };
+  } else if (inline){
+    ratingFilt = { op: inline.op || '', a: inline.a, b: (inline.b != null ? inline.b : null), invert: false };
+  }
+
+  return { q: hf.text, rating: ratingFilt, rated: hf.rated ?? null, ratedInvert: !!hf.ratedInvert};
+}
+
 </script>
 {% endblock %}
