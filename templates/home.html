@@ -7,7 +7,7 @@
        padding:32px; width:min(960px,92vw); text-align:center; }
 .h1{ font-size:clamp(28px,5vw,42px); font-weight:800; margin-bottom:12px }
 .sub{ color:var(--sub); margin-bottom:20px }
-.row{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center }
+.row{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center }
 .footer{ margin-top:10px; color:#8d95ac; font-size:12px }
 {% endblock %}
 {% block body %}
@@ -16,9 +16,9 @@
     <div class="h1">Rately</div>
     <div class="sub">A tool to help you rate your music</div>
     <div class="row">
-      <a class="btn btn-accent" href="/rate">Rate Songs</a>
-      <a class="btn" href="/render">Render Cards</a>
+      <a class="btn" href="/rate">Rate Songs</a>
       <button class="btn" onclick="pickLib()">Pick Library</button>
+      <a class="btn" href="/render">Render Cards</a>
     </div>
     <div class="footer">Developed by gabrielzv1233 © 2025</div>
   </div>
