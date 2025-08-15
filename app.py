@@ -14,23 +14,12 @@ import os
 
 IP = "http://127.0.0.1:3478"
 HEALTH_URL = IP + "/health"
-CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately", "filetypeshi")
+CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately")
 
 SERVER_PROC = None
 SERVER_PORT_LOCK = 51235
 
 os.makedirs(CONFIG_PATH, exist_ok=True)
-COOKIES_FILE = os.path.join(CONFIG_PATH, "cookies.txt")
-COOKIE_JAR = cookiejar.MozillaCookieJar(COOKIES_FILE)
-try:
-    if os.path.exists(COOKIES_FILE):
-        COOKIE_JAR.load(ignore_discard=True, ignore_expires=True)
-except Exception:
-    COOKIE_JAR = cookiejar.MozillaCookieJar(COOKIES_FILE)
-
-URL_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
-urllib.request.install_opener(URL_OPENER)
-
 def already_running() -> bool:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,15 +50,8 @@ def run_flask():
         SERVER_PROC = subprocess.Popen(FLASK_CMD, cwd=script_dir, stdout=sys.stdout, stderr=sys.stderr)
         SERVER_PROC.wait()
 
-def _save_cookies():
-    try:
-        COOKIE_JAR.save(ignore_discard=True, ignore_expires=True)
-    except Exception:
-        pass
-
 def on_closed():
     global SERVER_PROC
-    _save_cookies()
     if SERVER_PROC and SERVER_PROC.poll() is None:
         try:
             SERVER_PROC.terminate()
@@ -148,10 +130,7 @@ if __name__ == "__main__":
         if hwnd:
             windll.user32.ShowWindow(hwnd, 6)
 
-        try:
-            webview.start(private_mode=False, storage_path=CONFIG_PATH, debug=False)
-        finally:
-            _save_cookies()
+        webview.start(private_mode=False, storage_path=CONFIG_PATH, debug=False)
+        
     except KeyboardInterrupt:
-        _save_cookies()
         sys.exit(0)

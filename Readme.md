@@ -1,4 +1,7 @@
 # Welcome to Rately (Name is WIP)
+
+> THIS REQUIRES FFMPEG TO BE INSTALLED
+
 Rately is a "simple" app that allows you to easily rate your music  
 Rately supports the following formats; MP3s, WAVs, OGGs, M4As, and FLACs.  
 

@@ -20,11 +20,13 @@ except Exception:
 app = Flask(__name__)
 app.url_map.strict_slashes = False
 
-FORCE_SELECT_ON_START = True
-CONFIG = {"library": None}
+FORCE_SELECT_ON_START = True # forces to true if forcedpath[0] is true
+forcedpath = [False, r"DIR"] # True/False (force use defined), Path to use..... Used for if you want to essentially disable changing the dir
+hostall = [False, 5000] # Enable hosting on all IPs True/False, port to host on (disabled if running as executable or from app.py)
 CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately", "config.json")
+
+CONFIG = {"library": None}
 print(f"Config will be stored in {CONFIG_PATH}")
-ALLOWED = {".mp3", ".ogg", ".wav", ".m4a", ".flac", ".aac"}
 
 DEFAULT_IMAGE_SIZE = (1080, 1440)
 THEME = {
@@ -37,12 +39,19 @@ THEME = {
     "accent": "#FF2D55"
 }
 
+ALLOWED = {".mp3", ".ogg", ".wav", ".m4a", ".flac", ".aac"}
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 if os.path.exists(CONFIG_PATH):
     try:
         CONFIG.update(json.load(open(CONFIG_PATH, "r", encoding="utf-8")))
     except:
         pass
+
+if forcedpath[0] == True:
+    FORCE_SELECT_ON_START = True
+
+if __name__ != "__main__":
+    hostall = [False, 3478]
 
 def save_config():
     try:
@@ -356,6 +365,13 @@ def safe_filename(name: str) -> str:
   
 PICK_JOBS = {}
 
+def askdir(root):
+    global forcedpath
+    if forcedpath[0]:
+        return forcedpath[1]
+    else:
+        return filedialog.askdirectory(title="Select music folder", parent=root)
+
 def _start_pick_job(job_id):
     out = {"status":"done", "path":"", "canceled": False}
     try:
@@ -365,7 +381,7 @@ def _start_pick_job(job_id):
             root = tk.Tk()
             root.attributes("-topmost", True)
             root.withdraw()
-            path = filedialog.askdirectory(title="Select music folder", parent=root)
+            path = askdir(root)
             root.attributes("-topmost", False)
             try: root.destroy()
             except: pass
@@ -711,5 +727,8 @@ def api_render(tid, fname=None):
 
     return send_file(out, mimetype="image/png", as_attachment=False, download_name=fname)
 
-if __name__ == "__main__":
-    app.run(port=3478, debug=False)
+if __name__ == "__main__":    
+    if hostall[0]:    
+        app.run(host="0.0.0.0", port=hostall[1], debug=True)
+    else:
+        app.run(host="127.0.0.1", port=3478, debug=True)
