@@ -13,7 +13,6 @@
 }
 html,body{ overflow:hidden }
 
-/* Header row with inline search */
 .queue-head{
   padding:12px 12px; font-weight:800; border-bottom:1px solid var(--border);
   display:flex; align-items:center; gap:10px;
@@ -25,7 +24,6 @@ html,body{ overflow:hidden }
 }
 .queue-head input[type="search"]::placeholder{ color:#8b92a6 }
 
-/* Let the list take remaining space naturally */
 .queue{ flex:1; overflow:auto; padding:8px; display:flex; flex-direction:column; gap:8px; }
 .queue-item{
   display:flex; align-items:center; gap:12px; padding:10px; border:1px solid var(--border);
@@ -139,7 +137,7 @@ html,body{ overflow:hidden }
     </button>
     <div class="modal-title">Rate Track</div>
     <div class="modal-fields">
-      <input id="rating" class="input input-rating mono" type="number" min="0" max="10" step="0.01" placeholder="x/10 (e.g. 7.85)">
+      <input id="rating" class="input input-rating mono" type="number" min="0" max="10" step="0.01" placeholder="0/10 (e.g. 7.85)">
       <textarea id="comment" class="input textarea" rows="5" placeholder="Comments (optional)"></textarea>
     </div>
     <div class="modal-confirm">
@@ -172,6 +170,10 @@ const artistEl = document.getElementById('artist');
 const queueEl = document.getElementById('queue');
 const container = document.querySelector('.container');
 const qbox = document.getElementById('q');
+
+function versioned(path, v){ return `${path}${path.includes('?')?'&':'?'}v=${encodeURIComponent(String(v||0))}`; }
+function coverUrl(id, w, v){ let url = `/cover/${id}`; if (w) url += `?w=${w}`; return versioned(url, v); }
+function audioUrl(id, v){ return versioned(`/audio/${id}`, v); }
 
 vol.addEventListener('input', ()=>{ audio.volume = parseFloat(vol.value); });
 
@@ -207,8 +209,13 @@ function loadCurrent(play=false){
   if(!LIB.length) return;
   wipeFields();
   const t = LIB[idx];
-  audio.src = `/audio/${t.id}`;
-  cover.src = `/cover/${t.id}`;
+  audio.src = audioUrl(t.id, t.mtime);
+  cover.src = coverUrl(t.id, 512, t.mtime);
+  const hiC = coverUrl(t.id, 1024, t.mtime);
+  const pre = new Image();
+  pre.onload = ()=>{ cover.src = hiC; };
+  pre.src = hiC;
+
   titleEl.textContent  = t.display_title  || t.title  || 'Unknown Title';
   artistEl.textContent = t.display_artist || t.artist || 'Unknown Artist';
   seek.value = 0; seek.max = 100; tcur.textContent='0:00'; tend.textContent=prettyTime(t.duration || 0);
@@ -263,7 +270,7 @@ function cancelModal(escCancel){
 function closeModal(){
   _bgDown = false;
   document.getElementById('modal').classList.remove('show');
-  setTimeout(()=>{ autoPopup=false; manualPopup=false; modalOpen=false; },100);
+  setTimeout(()=>{ autoPopup=false; manualPopup=false; },100);
 }
 
 async function submitRating(){
@@ -450,7 +457,7 @@ function buildQueue(){
 
     div.innerHTML = `
       <div class="qcov">
-        <img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"/>
+        <img src="${coverUrl(t.id,72,t.mtime)}" data-hi="${coverUrl(t.id,256,t.mtime)}" style="width:100%;height:100%;object-fit:cover"/>
       </div>
       <div class="qtxt">
         <div class="ttl">${t.display_title || t.title}</div>
@@ -462,6 +469,14 @@ function buildQueue(){
       }
     `;
     queueEl.appendChild(div);
+
+    const img = div.querySelector('img');
+    if (img){
+      const hi = img.getAttribute('data-hi');
+      const hiImg = new Image();
+      hiImg.onload = () => { img.src = hi; };
+      hiImg.src = hi;
+    }
   }
 }
 
@@ -581,6 +596,7 @@ function matchesRatingExt(track, filt){
 
   return filt.invert ? !ok : ok;
 }
+
 let sideDetached = false
 let sideNode = side;
 

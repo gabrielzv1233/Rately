@@ -25,6 +25,8 @@
 img.card{ width:min(380px, 42vw); border-radius:16px; border:1px solid var(--border) }
 .topbar{ position:absolute; top:18px; left:18px; display:flex; gap:10px }
 button.btn {margin-right: 5px;}
+.ratingpill{ margin-left:auto; background:rgba(255,45,85,.15); border:1px solid rgba(255,45,85,.35);
+             color:#ff6f93; border-radius:10px; padding:2px 8px; font-size:12px }
 {% endblock %}
 {% block body %}
 <div class="wrap">
@@ -63,6 +65,10 @@ function showPreview(on){ preview.classList.toggle('show', !!on); }
 function pretty(v){ return v==null? '' : (Number.isInteger(+v)? String(+v) : String(Number(v).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1'))); }
 function normalizeSimple(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
 function toFlat(s){ return normalizeSimple(s).replace(/\s+/g,""); }
+
+function versioned(path, v){ return `${path}${path.includes('?')?'&':'?'}v=${encodeURIComponent(String(v||0))}`; }
+function coverUrl(id, w, v){ let url = `/cover/${id}`; if (w) url += `?w=${w}`; return versioned(url, v); }
+function audioUrl(id, v){ return versioned(`/audio/${id}`, v); }
 
 function parseInlineRating(q){
   const m=q.match(/rating\s*:\s*([<>]=?|)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?/i);
@@ -131,7 +137,9 @@ function buildList(){
     const title  = t.display_title  || t.title  || '';
     const artist = t.display_artist || t.artist || '';
     div.innerHTML = `
-      <div class="icov"><img src="/cover/${t.id}" style="width:100%;height:100%;object-fit:cover"></div>
+      <div class="icov">
+        <img src="${coverUrl(t.id,72,t.mtime)}" data-hi="${coverUrl(t.id,256,t.mtime)}" style="width:100%;height:100%;object-fit:cover" loading="lazy">
+      </div>
       <div class="itxt">
         <div class="ttl">${title}</div>
         <div class="art">${artist}</div>
@@ -142,6 +150,14 @@ function buildList(){
       }
     `;
     listEl.appendChild(div);
+
+    const img = div.querySelector('img');
+    if (img){
+      const hi = img.getAttribute('data-hi');
+      const hiImg = new Image();
+      hiImg.onload = () => { img.src = hi; };
+      hiImg.src = hi;
+    }
   }
 }
 
@@ -160,25 +176,25 @@ function safeWinName(s){
   return name;
 }
 
-function browserImageUrlFor(id){
+function browserImageUrlFor(id, v){
   const t = LIB.find(x=>x.id===id);
   const base = safeWinName((t && (t.display_title || t.title)) || 'card') + '.png';
-  return `/api/render/${id}/${encodeURIComponent(base)}`;
+  return versioned(`/api/render/${id}/${encodeURIComponent(base)}`, v || t?.mtime);
 }
 
 async function select(id){
   currentId=id;
   buildList();
 
-  const isBridge = !!(window.pywebview && window.pywebview.api && window.pywebview.api.save_file);
-  if (isBridge){
-    const r=await fetch(`/api/render/${id}`);
-    const blob=await r.blob();
-    const u=URL.createObjectURL(blob);
-    cardEl.src=u;
-  } else {
-    cardEl.src = browserImageUrlFor(id);
-  }
+  const t = LIB.find(x=>x.id===id);
+  const low = coverUrl(id, 512, t?.mtime);
+  const hi  = browserImageUrlFor(id, t?.mtime);
+
+  cardEl.src = low;
+  const pre = new Image();
+  pre.onload = ()=>{ cardEl.src = hi; };
+  pre.src = hi;
+
   showPreview(true);
 }
 
@@ -201,7 +217,7 @@ async function download(){
     return;
   }
 
-  const href = browserImageUrlFor(currentId);
+  const href = browserImageUrlFor(currentId, t?.mtime);
   const a = document.createElement('a');
   a.href = href;
   a.download = base;
@@ -317,6 +333,5 @@ function currentFilterFromBox(){
 
   return { q: hf.text, rating: ratingFilt, rated: hf.rated ?? null, ratedInvert: !!hf.ratedInvert};
 }
-
 </script>
 {% endblock %}

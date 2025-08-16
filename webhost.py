@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify, send_file, Response, abort, render_template
-import os, io, re, json, base64, hashlib, mimetypes, threading, uuid, PIL
+import os, io, re, json, base64, hashlib, mimetypes, threading, uuid, PIL, time
 from PIL import Image, ImageDraw, ImageFont, ImageFilter 
 from functools import lru_cache
+from datetime import datetime
 
 from mutagen.id3 import ID3, ID3NoHeaderError, POPM, COMM, TXXX
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
@@ -20,9 +21,9 @@ except Exception:
 app = Flask(__name__)
 app.url_map.strict_slashes = False
 
-FORCE_SELECT_ON_START = True # forces to true if forcedpath[0] is true
-forcedpath = [False, r"DIR"] # True/False (force use defined), Path to use..... Used for if you want to essentially disable changing the dir
-hostall = [False, 5000] # Enable hosting on all IPs True/False, port to host on (disabled if running as executable or from app.py)
+FORCE_SELECT_ON_START = True
+forcedpath = [False, r"C:\Users\Gabriel\Downloads\musica"]
+hostall = [False, 5000]
 CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately", "config.json")
 
 CONFIG = {"library": None}
@@ -96,13 +97,58 @@ def guess_mime(path: str) -> str:
 
 def safe(v, default): return v if (v is not None and str(v).strip() != "") else default
 
+def file_mtime_epoch(path: str) -> int:
+    try: return int(os.path.getmtime(path))
+    except: return 0
+
+def httpdate(ts: float) -> str:
+    return datetime.utcfromtimestamp(ts).strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+def set_immutable_cache(resp, etag: str, last_mod_ts: int):
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = httpdate(last_mod_ts)
+    resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return resp
+
+def client_conditional_hit(etag: str, last_mod_ts: int) -> bool:
+    inm = request.headers.get('If-None-Match')
+    ims = request.headers.get('If-Modified-Since')
+    if inm and inm == etag: return True
+    if ims:
+        try:
+            return int(datetime.strptime(ims, '%a, %d %b %Y %H:%M:%S GMT').timestamp()) >= int(last_mod_ts)
+        except: pass
+    return False
+
+_emoji_re = re.compile(r'[\U0001F300-\U0001FAFF\U00002700-\U000027BF\U00002600-\U000026FF]+')
+
+def ensure_emoji_safe(txt: str) -> str:
+    if not txt: return txt
+    try:
+        txt.encode('utf-8')
+        return txt
+    except:
+        pass
+    return _emoji_re.sub(lambda m: ''.join([f'\\U{ord(c):08X}' for c in m.group(0)]), txt)
+
 def read_meta(path: str):
     ext = os.path.splitext(path)[1].lower()
-    title = artist = comment = None
+    title = artist = comment = album = None
     duration = None
     rating_exact = None
     rating_approx = None
     cover_bytes, cover_mime = None, None
+    track_raw = None
+    disc_raw = None
+
+    def parse_tracklike(v):
+        if v is None: return (None, None)
+        s = str(v).strip()
+        m = re.match(r'^\s*(\d+)\s*(?:/\s*(\d+)\s*)?$', s)
+        if not m: return (None, None)
+        t = int(m.group(1))
+        total = int(m.group(2)) if m.group(2) else None
+        return (t, total)
 
     try:
         mf = MutaFile(path, easy=True)
@@ -112,7 +158,12 @@ def read_meta(path: str):
         if mf:
             title = (mf.get("title", [None]) or [None])[0]
             artist = (mf.get("artist", [None]) or [None])[0]
+            album = (mf.get("album", [None]) or [None])[0]
             comment = (mf.get("comment", [None]) or [None])[0]
+            tr = (mf.get("tracknumber", [None]) or [None])[0]
+            dn = (mf.get("discnumber", [None]) or [None])[0]
+            track_raw = tr
+            disc_raw = dn
     except Exception:
         pass
 
@@ -122,6 +173,7 @@ def read_meta(path: str):
             except ID3NoHeaderError: tags = ID3()
             title  = safe(title,  (tags.get("TIT2").text[0] if tags.get("TIT2") else None))
             artist = safe(artist, (tags.get("TPE1").text[0] if tags.get("TPE1") else None))
+            album  = safe(album,  (tags.get("TALB").text[0] if tags.get("TALB") else None))
             if not comment:
                 comms = [f.text for f in tags.getall("COMM")]
                 if comms:
@@ -138,11 +190,16 @@ def read_meta(path: str):
             if apics:
                 cover_bytes = apics[0].data
                 cover_mime = apics[0].mime or "image/jpeg"
+            if not track_raw and tags.get("TRCK"):
+                track_raw = tags.get("TRCK").text[0]
+            if not disc_raw and tags.get("TPOS"):
+                disc_raw = tags.get("TPOS").text[0]
 
         elif ext == ".flac":
             f = FLAC(path)
             title  = safe(title,  f.get("title",  [None])[0])
             artist = safe(artist, f.get("artist", [None])[0])
+            album  = safe(album,  f.get("album",  [None])[0])
             comment = safe(comment, f.get("comment", [None])[0] or f.get("description", [None])[0])
             if "EXACT_RATING" in f:
                 try: rating_exact = float(f["EXACT_RATING"][0])
@@ -156,11 +213,14 @@ def read_meta(path: str):
             if f.pictures:
                 cover_bytes = f.pictures[0].data
                 cover_mime = f.pictures[0].mime
+            track_raw = track_raw or (f.get("tracknumber",[None])[0])
+            disc_raw  = disc_raw  or (f.get("discnumber",[None])[0])
 
         elif ext == ".ogg":
             og = OggVorbis(path)
             title  = safe(title,  og.get("title",  [None])[0])
             artist = safe(artist, og.get("artist", [None])[0])
+            album  = safe(album,  og.get("album",  [None])[0])
             comment = safe(comment, og.get("comment", [None])[0])
             if "EXACT_RATING" in og:
                 try: rating_exact = float(og["EXACT_RATING"][0])
@@ -177,12 +237,15 @@ def read_meta(path: str):
                     pic = Picture(base64.b64decode(picb64[0]))
                     cover_bytes, cover_mime = pic.data, pic.mime
                 except: pass
+            track_raw = track_raw or (og.get("tracknumber",[None])[0])
+            disc_raw  = disc_raw  or (og.get("discnumber",[None])[0])
 
         elif ext == ".m4a":
             mp = MP4(path)
             if mp.tags:
                 title  = safe(title,  (mp.tags.get("\xa9nam", [None]) or [None])[0])
                 artist = safe(artist, (mp.tags.get("\xa9ART", [None]) or [None])[0])
+                album  = safe(album,  (mp.tags.get("\xa9alb", [None]) or [None])[0])
                 comment = safe(comment, (mp.tags.get("\xa9cmt", [None]) or [None])[0])
                 ff = mp.tags.get("----:com.apple.iTunes:EXACT_RATING")
                 if ff and isinstance(ff[0], MP4FreeForm):
@@ -196,6 +259,10 @@ def read_meta(path: str):
                     c = cov[0]
                     cover_bytes = bytes(c)
                     cover_mime = "image/png" if c.imageformat == MP4Cover.FORMAT_PNG else "image/jpeg"
+                tr = mp.tags.get("trkn", [(None,None)])[0]
+                dn = mp.tags.get("disk", [(None,None)])[0]
+                if tr and tr[0]: track_raw = str(tr[0])
+                if dn and dn[0]: disc_raw  = str(dn[0])
 
         elif ext == ".wav":
             w = WAVE(path)
@@ -204,6 +271,7 @@ def read_meta(path: str):
                 if tags:
                     title  = safe(title,  tags.get("TIT2").text[0] if tags.get("TIT2") else None)
                     artist = safe(artist, tags.get("TPE1").text[0] if tags.get("TPE1") else None)
+                    album  = safe(album,  tags.get("TALB").text[0] if tags.get("TALB") else None)
                     if not comment:
                         comms = [f.text for f in tags.getall("COMM")]
                         if comms:
@@ -220,6 +288,8 @@ def read_meta(path: str):
                     if apics:
                         cover_bytes = apics[0].data
                         cover_mime = apics[0].mime or "image/jpeg"
+                    if tags.get("TRCK"): track_raw = tags.get("TRCK").text[0]
+                    if tags.get("TPOS"): disc_raw  = tags.get("TPOS").text[0]
             except:
                 pass
 
@@ -228,12 +298,22 @@ def read_meta(path: str):
 
     title = safe(title, "Unknown Title")
     artist = safe(artist, "Unknown Artist")
+    album = safe(album, "")
+
+    tnum, _ = (None, None)
+    dnum, _ = (None, None)
+    if track_raw: tnum, _ = parse_tracklike(track_raw)
+    if disc_raw:  dnum, _ = parse_tracklike(disc_raw)
+
     if rating_exact is not None:
         rating_approx = round(max(0, min(5, (rating_exact/2.0)*2))/2, 2)
     else:
         rating_approx = None
+
     return {
-        "title": title, "artist": artist, "duration": duration,
+        "title": title, "artist": artist, "album": album,
+        "duration": duration,
+        "track_no": tnum, "disc_no": dnum,
         "rating_exact": rating_exact, "rating_stars": rating_approx,
         "comment": comment, "has_cover": bool(cover_bytes),
         "cover": (cover_bytes, cover_mime)
@@ -251,6 +331,7 @@ def write_rating(path: str, r10: float | None, comment_text: str | None):
 
     def append_comment(existing, newtxt):
         if not newtxt: return existing
+        newtxt = ensure_emoji_safe(newtxt)
         if not existing or str(existing).strip() == "": return newtxt
         return f"{existing} | {newtxt}"
 
@@ -265,7 +346,7 @@ def write_rating(path: str, r10: float | None, comment_text: str | None):
                 pop = int(round((r10/10.0)*255))
                 tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
                 tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
-            if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=comment_text))
+            if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=ensure_emoji_safe(comment_text)))
             tags.save(path)
         except Exception as e:
             raise
@@ -279,7 +360,9 @@ def write_rating(path: str, r10: float | None, comment_text: str | None):
             f["RATING"] = [str(int(round(r10*10)))]
             f["EXACT_RATING"] = [f"{r10:.2f}"]
             f["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
-        if comment_text: f["comment"] = [append_comment(f.get("comment", [None])[0], comment_text)]
+        if comment_text:
+            prev = f.get("comment", [None])[0]
+            f["comment"] = [append_comment(prev, comment_text)]
         f.save()
 
     elif ext == ".ogg":
@@ -291,7 +374,9 @@ def write_rating(path: str, r10: float | None, comment_text: str | None):
             og["RATING"] = [str(int(round(r10*10)))]
             og["EXACT_RATING"] = [f"{r10:.2f}"]
             og["FMPS_RATING"] = [f"{r10/10.0:.3f}"]
-        if comment_text: og["comment"] = [append_comment(og.get("comment", [None])[0], comment_text)]
+        if comment_text:
+            prev = og.get("comment", [None])[0]
+            og["comment"] = [append_comment(prev, comment_text)]
         og.save()
 
     elif ext == ".m4a":
@@ -322,7 +407,7 @@ def write_rating(path: str, r10: float | None, comment_text: str | None):
                 pop = int(round((r10/10.0)*255))
                 tags.delall("POPM"); tags.add(POPM(email="TuneRater@local", rating=pop, count=0))
                 tags.delall("TXXX:EXACT_RATING"); tags.add(TXXX(encoding=3, desc="EXACT_RATING", text=[f"{r10:.2f}"]))
-            if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=comment_text))
+            if comment_text: tags.add(COMM(encoding=3, lang="eng", desc="", text=ensure_emoji_safe(comment_text)))
             w.save()
         except Exception:
             pass
@@ -466,19 +551,35 @@ def api_tracks():
         if artist.strip().lower() == "unknown artist":
             artist = ""
 
+        album = (meta.get("album") or "").strip()
+        track_no = meta.get("track_no")
+        disc_no = meta.get("disc_no")
+
         tracks.append({
             "id": tid_for(p),
             "title": meta["title"],
             "artist": meta["artist"],
+            "album": album,
             "display_title": title,
             "display_artist": artist,
             "duration": meta["duration"],
             "rating_exact": meta["rating_exact"],
             "rating_stars": meta["rating_stars"],
             "comment": meta["comment"],
+            "track_no": (int(track_no) if isinstance(track_no, int) else None),
+            "disc_no": (int(disc_no) if isinstance(disc_no, int) else None),
+            "mtime": file_mtime_epoch(p)
         })
-    return jsonify(tracks=tracks)
 
+    def sort_key(t):
+        alb_key = (t["album"].lower() if t["album"] else "\uffff")
+        disc_key = (t["disc_no"] if isinstance(t["disc_no"], int) else 10**9)
+        trk_key = (t["track_no"] if isinstance(t["track_no"], int) else 10**9)
+        fallback = (t["display_title"] or t["title"] or "").lower()
+        return (alb_key, disc_key, trk_key, fallback)
+
+    tracks.sort(key=sort_key)
+    return jsonify(tracks=tracks)
 
 @app.get("/audio/<tid>")
 def audio(tid):
@@ -487,6 +588,14 @@ def audio(tid):
     rng = request.headers.get("Range", None)
     size = os.path.getsize(path)
     mime = guess_mime(path)
+
+    ver = file_mtime_epoch(path)
+    etag = f'W/"audio-{tid}-{ver}-{size}"'
+
+    if not rng and client_conditional_hit(etag, ver):
+        resp = Response(status=304)
+        return set_immutable_cache(resp, etag, ver)
+
     if rng:
         m = re.match(r"bytes=(\d+)-(\d*)", rng or "")
         if m:
@@ -499,17 +608,47 @@ def audio(tid):
             rv.headers["Content-Range"] = f"bytes {start}-{end}/{size}"
             rv.headers["Accept-Ranges"] = "bytes"
             rv.headers["Content-Length"] = str(length)
-            return rv
-    return send_file(path, mimetype=mime)
+            return set_immutable_cache(rv, etag, ver)
+
+    resp = send_file(path, mimetype=mime)
+    return set_immutable_cache(resp, etag, ver)
+
+def resize_image_bytes(data: bytes, mime: str, w: int | None) -> tuple[bytes, str]:
+    if not w: return data, mime
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        w = max(32, min(2048, int(w)))
+        r = w / float(img.width)
+        h = max(32, int(img.height * r))
+        img = img.resize((w, h), Image.LANCZOS)
+        bio = io.BytesIO()
+        try:
+            img.save(bio, format="WEBP", quality=85, method=6)
+            return bio.getvalue(), "image/webp"
+        except:
+            bio = io.BytesIO()
+            img.save(bio, format="PNG")
+            return bio.getvalue(), "image/png"
+    except:
+        return data, mime
 
 @app.get("/cover/<tid>")
 def cover_route(tid):
     try:
         path = path_for_tid(tid)
         data, mime = extract_cover_bytes(path)
+        ver = file_mtime_epoch(path)
+        etag = f'W/"cover-{tid}-{ver}"'
+        if client_conditional_hit(etag, ver):
+            resp = Response(status=304)
+            return set_immutable_cache(resp, etag, ver)
+        w = request.args.get("w")
+        data, mime = resize_image_bytes(data, mime, int(w) if w else None)
+        resp = Response(data, 200, mimetype=mime)
+        return set_immutable_cache(resp, etag, ver)
     except:
         data, mime = fallback_cover()
-    return Response(data, 200, mimetype=mime)
+        return Response(data, 200, mimetype=mime) 
 
 @app.post("/api/rate/<tid>")
 def api_rate(tid):
@@ -530,11 +669,11 @@ def api_rate(tid):
         return jsonify(ok=False, error=str(e)), 500
 
 def draw_card(path, width, height):
-    COVER_SCALE = 0.75 # fraction of min(panel_w, panel_h)
-    TEXT_SCALE = 1.00 # All text
-    TITLE_SCALE = 0.67 # Song name
-    ARTIST_SCALE = 1.10 # Artist name
-    RATING_SCALE = 1.75 # rating/comment block
+    COVER_SCALE = 0.75
+    TEXT_SCALE = 1.00
+    TITLE_SCALE = 0.67
+    ARTIST_SCALE = 1.10
+    RATING_SCALE = 1.75
     
     meta = read_meta(path)
     title = meta["title"] or ""
@@ -584,6 +723,7 @@ def draw_card(path, width, height):
         ]
         win = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
         win_candidates = [
+            os.path.join(win, "seguiemj.ttf"),
             os.path.join(win, "arialbd.ttf") if bold else os.path.join(win, "arial.ttf"),
             os.path.join(win, "segoeuib.ttf") if bold else os.path.join(win, "segoeui.ttf"),
         ]
@@ -725,7 +865,13 @@ def api_render(tid, fname=None):
     else:
         fname = "card.png"
 
-    return send_file(out, mimetype="image/png", as_attachment=False, download_name=fname)
+    ver = file_mtime_epoch(path)
+    etag = f'W/"card-{tid}-{w}x{h}-{ver}"'
+    if client_conditional_hit(etag, ver):
+        resp = Response(status=304)
+        return set_immutable_cache(resp, etag, ver)
+    resp = send_file(out, mimetype="image/png", as_attachment=False, download_name=fname)
+    return set_immutable_cache(resp, etag, ver)
 
 if __name__ == "__main__":    
     if hostall[0]:    
