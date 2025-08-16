@@ -581,5 +581,18 @@ function matchesRatingExt(track, filt){
 
   return filt.invert ? !ok : ok;
 }
+let sideDetached = false
+let sideNode = side;
+
+function toggleQueue(){
+  if (!sideDetached){
+    if (sideNode.parentNode) sideNode.parentNode.removeChild(sideNode);
+    sideDetached = true;
+  } else {
+    container.appendChild(sideNode);
+    sideDetached = false;
+    buildQueue();
+  }
+}
 </script>
 {% endblock %}
