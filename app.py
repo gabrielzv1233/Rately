@@ -12,6 +12,7 @@ import time
 import sys
 import os
 
+DebugMode = False
 IP = "http://127.0.0.1:3478"
 HEALTH_URL = IP + "/health"
 CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately")
@@ -36,7 +37,7 @@ def run_flask():
         try:
             import webhost
             print("[launcher] starting backend (in-process)", flush=True)
-            webhost.app.run(host="127.0.0.1", port=3478, debug=False, use_reloader=False)
+            webhost.app.run(host="127.0.0.1", port=3478, debug=DebugMode, use_reloader=False)
         except Exception as e:
             print(f"[launcher] backend failed in-process: {e}", flush=True)
     else:
@@ -130,7 +131,7 @@ if __name__ == "__main__":
         if hwnd:
             windll.user32.ShowWindow(hwnd, 6)
 
-        webview.start(private_mode=False, storage_path=CONFIG_PATH, debug=False)
+        webview.start(private_mode=False, storage_path=CONFIG_PATH, debug=DebugMode)
         
     except KeyboardInterrupt:
         sys.exit(0)

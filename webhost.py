@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, send_file, Response, abort, render_template
-import os, io, re, json, base64, hashlib, mimetypes, threading, uuid, PIL, time
+import os, io, re, json, base64, hashlib, mimetypes, threading, uuid, PIL
 from PIL import Image, ImageDraw, ImageFont, ImageFilter 
 from functools import lru_cache
 from datetime import datetime
@@ -22,7 +22,7 @@ app = Flask(__name__)
 app.url_map.strict_slashes = False
 
 FORCE_SELECT_ON_START = True
-forcedpath = [False, r"C:\Users\Gabriel\Downloads\musica"]
+forcedpath = [False, r"C:\Users\User\Music"]
 hostall = [False, 5000]
 CONFIG_PATH = os.path.join(os.environ["LOCALAPPDATA"], "Rately", "config.json")
 
@@ -721,11 +721,10 @@ def draw_card(path, width, height):
             os.path.join(here, "Inter-Bold.ttf") if bold else os.path.join(here, "Inter-Regular.ttf"),
             "Inter-Bold.ttf" if bold else "Inter-Regular.ttf",
         ]
-        win = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
         win_candidates = [
-            os.path.join(win, "seguiemj.ttf"),
-            os.path.join(win, "arialbd.ttf") if bold else os.path.join(win, "arial.ttf"),
-            os.path.join(win, "segoeuib.ttf") if bold else os.path.join(win, "segoeui.ttf"),
+            os.path.join(app.static_folder, "fonts", "seguiemj.ttf"),
+            os.path.join(app.static_folder, "fonts", "arialbd.ttf") if bold else os.path.join(app.static_folder, "fonts", "arial.ttf"),
+            os.path.join(app.static_folder, "fonts", "segoeuib.ttf") if bold else os.path.join(app.static_folder, "fonts", "segoeui.ttf"),
         ]
         pil_fonts = os.path.join(os.path.dirname(PIL.__file__), "fonts")
         dejavu = os.path.join(pil_fonts, "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
